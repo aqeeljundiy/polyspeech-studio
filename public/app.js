@@ -1,4 +1,4 @@
-// Polyspeech Studio front end: board (#/), ad review (#/a/<id>), knowledge (#/knowledge).
+// Polyspeech Studio front end: board (#/), ad review (#/a/<id>), knowledge (#/knowledge), settings (#/settings).
 const COLS = [
   { k: 'brief', label: 'Brief', sub: 'Ideas waiting for v1', c: '#9A9EA8' },
   { k: 'rendering', label: 'Rendering', sub: 'Claude is working on it', c: '#2563EB' },
@@ -43,33 +43,98 @@ async function claudeBox(list) {
   el.innerHTML = `<div class="h"><span class="pulse"></span>${run ? 'Claude is working' : 'Claude is idle'}</div>
     <div class="muted">${run ? `<a href="#/a/${run.id}"><b>${esc(run.title)}</b></a> · ${esc(run.job.note || '')}${run.progress ? ` · ${run.progress.pct}%` : ''}` : 'Send an ad back to revision and Claude picks it up here.'}</div>
     ${q ? `<div class="muted">${q} more in the queue</div>` : ''}`;
-  $$('.nav a').forEach(a => a.classList.toggle('on', (location.hash.startsWith('#/knowledge') ? 'knowledge' : 'board') === a.dataset.nav));
+  const sec = location.hash.startsWith('#/knowledge') ? 'knowledge' : location.hash.startsWith('#/settings') ? 'settings' : 'board';
+  $$('.nav a').forEach(a => a.classList.toggle('on', sec === a.dataset.nav));
 }
 
 // ---------- board ----------
 async function board() {
-  const ps = await api('/api/projects'); claudeBox(ps);
+  const [ps, st] = await Promise.all([api('/api/projects'), api('/api/settings').catch(() => null)]); claudeBox(ps);
+  const missing = st && st.sounds.have < st.sounds.total;
   const count = k => ps.filter(p => p.status === k).length;
-  app.innerHTML = `<div class="head enter"><div><h1>Ads</h1><p class="muted" style="margin:4px 0 0">Drag a card to move it. Open one to review, comment and send it back to Claude.</p></div>
+  app.innerHTML = `<div class="head enter"><div><h1>Ads</h1><p class="muted" style="margin:4px 0 0">Open an ad to review it, comment and send it back to Claude. Each step moves with its button.</p></div>
     <div class="stats"><span><b>${ps.length}</b>ads</span><span><b>${count('review')}</b>to review</span><span><b>${ps.reduce((a, p) => a + p.openComments, 0)}</b>open comments</span></div></div>
+    ${missing ? `<div class="banner enter">${ic('music', 18)}<div><b>Sounds aren’t downloaded yet</b><div class="muted">The music and sound effects come from Mixkit and can’t ship in the repo. Renders need them.</div></div><span class="sp"></span><button class="btn primary sm" id="getSounds">${ic('download', 15)}Download sounds</button></div>` : ''}
     <div class="board">${COLS.map((c, ci) => `<section class="col enter" style="animation-delay:${ci * 40}ms" data-k="${c.k}"><div class="col-h"><span><i class="dot" style="background:${c.c}"></i>${c.label}</span><span class="n">${count(c.k)}</span></div><div class="col-sub">${c.sub}</div>
       ${ps.filter(p => p.status === c.k).sort((a, b) => b.updated.localeCompare(a.updated)).map(card).join('') || '<div class="empty">Nothing here</div>'}</section>`).join('')}</div>`;
   icons();
+  $('#getSounds') && ($('#getSounds').onclick = () => downloadSounds($('#getSounds')).then(board));
   $$('.card').forEach(el => {
-    el.onclick = () => { location.hash = '#/a/' + el.dataset.id; };
-    el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', el.dataset.id); el.classList.add('dragging'); });
-    el.addEventListener('dragend', () => el.classList.remove('dragging'));
-  });
-  $$('.col').forEach(col => {
-    col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
-    col.addEventListener('dragleave', () => col.classList.remove('over'));
-    col.addEventListener('drop', async e => { e.preventDefault(); col.classList.remove('over'); await api('/api/projects/' + e.dataTransfer.getData('text/plain'), { method: 'PATCH', body: { status: col.dataset.k } }); board(); });
+    const p = ps.find(x => x.id === el.dataset.id);
+    el.onclick = e => { if (e.target.closest('[data-act],.more')) return; location.hash = '#/a/' + p.id; };
+    el.oncontextmenu = e => { e.preventDefault(); adMenu(p, e.clientX, e.clientY, board); };
+    $('.more', el).onclick = e => { const r = e.currentTarget.getBoundingClientRect(); adMenu(p, r.right - 230, r.bottom + 4, board); };
+    $('[data-act]', el) && ($('[data-act]', el).onclick = e => doStep(p, e.currentTarget.dataset.act, board));
   });
 }
-const card = p => `<article class="card" draggable="true" data-id="${p.id}">
+
+// ---------- steps: each move has its own button ----------
+// Brief → (Make v1) → Rendering → Needs review → (Approve) → Ready to upload → (Mark uploaded) → Uploaded.
+// Rendering and Revision requested are set by Claude's jobs, never by hand.
+const NEXT = { brief: ['gen', 'sparkles', 'Make v1'], review: ['approve', 'check', 'Approve'], ready: ['upload', 'upload', 'Mark uploaded'] };
+const nextStep = p => jobActive(p.job) ? null : p.job?.state === 'failed' ? ['retry', 'rotate-ccw', 'Send again'] : NEXT[p.status] || null;
+async function doStep(p, act, after) {
+  const patch = status => api('/api/projects/' + p.id, { method: 'PATCH', body: { status } });
+  try {
+    if (act === 'gen' || act === 'retry') { await api(`/api/projects/${p.id}/request`, { method: 'POST', body: {} }); toast('Claude is on it'); }
+    else if (act === 'approve') { await patch('ready'); toast('Approved. Ready to upload'); }
+    else if (act === 'upload') { await patch('uploaded'); toast('Marked as uploaded'); }
+    else if (act === 'toReview') { await patch('review'); toast('Moved back to Needs review'); }
+    else if (act === 'toReady') { await patch('ready'); toast('Moved back to Ready to upload'); }
+    else if (act === 'cancel') { await api(`/api/projects/${p.id}/job`, { method: 'POST', body: { state: 'cancel' } }); toast('Job cancelled'); }
+    else if (act === 'rename') {
+      const t = await ask({ title: 'Rename ad', input: p.title, ok: 'Rename' }); if (t == null || !t.trim() || t.trim() === p.title) return;
+      await api('/api/projects/' + p.id, { method: 'PATCH', body: { title: t } }); toast('Renamed');
+    } else if (act === 'delete') {
+      const n = p.versionCount ?? p.versions?.length ?? 0;
+      if (await ask({ title: `Delete “${p.title}”?`, text: `This removes the ad${n ? `, its ${n} version${n > 1 ? 's' : ''}` : ''} and every comment from this PC. It can’t be undone.`, ok: 'Delete', danger: true }) == null) return;
+      await api('/api/projects/' + p.id, { method: 'DELETE' }); toast('Ad deleted');
+      if (location.hash.startsWith('#/a/')) { location.hash = '#/'; return; }
+    }
+    after && after();
+  } catch (e) { toast(e.message); }
+}
+function adMenu(p, x, y, after) {
+  const items = [];
+  if (!location.hash.startsWith('#/a/')) items.push(['open', 'external-link', 'Open']);
+  const onAd = location.hash.startsWith('#/a/'), nx = nextStep(p); if (nx && !onAd) items.push(nx); // the review page has its own step buttons
+  if (p.status === 'ready' || p.status === 'uploaded') items.push(['toReview', 'undo-2', 'Move back to Needs review']);
+  if (p.status === 'uploaded') items.push(['toReady', 'undo-2', 'Move back to Ready to upload']);
+  if (jobActive(p.job)) items.push(['cancel', 'circle-stop', 'Cancel Claude’s job']);
+  items.push(['rename', 'pencil', 'Rename'], ['-'], ['delete', 'trash-2', 'Delete', 'danger']);
+  menu(items, x, y, act => act === 'open' ? (location.hash = '#/a/' + p.id) : doStep(p, act, after));
+}
+function menu(items, x, y, pick) {
+  $('#menu')?.remove();
+  const m = document.createElement('div'); m.id = 'menu'; m.className = 'menu'; m.setAttribute('role', 'menu');
+  m.innerHTML = items.map(([k, icon, label, cls]) => k === '-' ? '<hr>' : `<button type="button" role="menuitem" class="${cls || ''}" data-k="${k}">${ic(icon, 16)}${label}</button>`).join('');
+  document.body.append(m); icons();
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px'; m.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  const away = e => { if (!m.contains(e.target)) close(); }, onKey = e => { if (e.key === 'Escape') close(); };
+  const close = () => { m.classList.add('out'); setTimeout(() => m.remove(), 140); removeEventListener('pointerdown', away, true); removeEventListener('keydown', onKey); };
+  setTimeout(() => { addEventListener('pointerdown', away, true); addEventListener('keydown', onKey); });
+  $$('button', m).forEach(b => b.onclick = () => { close(); pick(b.dataset.k); });
+}
+// small confirm / prompt dialog: resolves to the typed text ('' for a confirm), or null when cancelled
+function ask({ title, text = '', input = null, ok = 'OK', danger = false }) {
+  const d = $('#askDlg'); $('#askT').textContent = title; $('#askX').textContent = text; $('#askX').hidden = !text;
+  $('#askIn').hidden = input == null; $('#askIn').value = input ?? '';
+  const b = $('#askOk'); b.textContent = ok; b.className = 'btn ' + (danger ? 'danger' : 'primary');
+  d.returnValue = ''; d.showModal(); if (input != null) { $('#askIn').focus(); $('#askIn').select(); } else $('.btn.ghost', d).focus();
+  return new Promise(res => { d.onclose = () => res(d.returnValue === 'ok' ? (input != null ? $('#askIn').value : '') : null); });
+}
+async function downloadSounds(btn) {
+  btn.disabled = true; let st = await api('/api/sounds', { method: 'POST' });
+  while (st.running) { btn.innerHTML = `<span class="spin"></span>Downloading ${st.have} of ${st.total}`; await new Promise(r => setTimeout(r, 700)); st = (await api('/api/settings')).sounds; }
+  toast(st.have >= st.total ? 'Sounds downloaded' : st.error || 'Some sounds didn’t download'); return st;
+}
+
+const card = p => { const nx = nextStep(p); return `<article class="card" data-id="${p.id}"><button type="button" class="more" aria-label="More actions">${ic('more-horizontal', 16)}</button>
   <div class="thumb ${p.format === '16:9' ? 'wide' : ''}">${p.latest ? `<video src="${media(p.id, p.latest.name)}#t=4" preload="metadata" muted></video><span class="vb">v${p.latest.v}</span>` : `<div class="ph">${ic('file-text', 22)}<br>Brief only</div>`}<span class="fmt">${p.format}</span></div>
   <div class="card-b"><h3>${esc(p.title)}</h3><div class="meta"><span>${esc(p.persona || '')}</span>${p.lang ? `<span class="chip">${esc(p.lang)}</span>` : ''}</div>
-    <div class="meta"><span>${ago(p.updated)}</span>${p.openComments ? `<span class="chip c">${ic('message-circle', 12)}${p.openComments}</span>` : ''}</div>${jobPill(p)}</div></article>`;
+    <div class="meta"><span>${ago(p.updated)}</span>${p.openComments ? `<span class="chip c">${ic('message-circle', 12)}${p.openComments}</span>` : ''}${p.vo?.on ? `<span class="chip" title="Voiceover: ${esc(p.vo.voiceName)}">${ic('mic', 12)}VO</span>` : ''}</div>${jobPill(p)}
+    ${nx ? `<button type="button" class="btn sm ghost cact" data-act="${nx[0]}">${ic(nx[1], 14)}${nx[2]}</button>` : ''}</div></article>`; };
 
 // ---------- ad review ----------
 let cur = null, curV = null, cmpV = null, tab = 'Comments';
@@ -85,8 +150,9 @@ async function ad(id, keep) {
   const ver = vs.find(v => v.v === curV), cmp = vs.find(v => v.v === cmpV), open = cur.comments.filter(c => !c.resolved).length;
   app.innerHTML = `<div class="crumbs"><a href="#/">${ic('arrow-left', 16)} Board</a><span>/</span><span>${esc(cur.title)}</span></div>
   <div class="p-head"><h1>${esc(cur.title)}</h1>
-    <select class="status" id="statusSel" ${statusPill(cur.status)} aria-label="Status">${COLS.map(c => `<option value="${c.k}" ${c.k === cur.status ? 'selected' : ''}>${c.label}</option>`).join('')}</select>
-    <span class="chip">${esc(cur.persona || '')}</span><span class="chip">${esc(cur.lang || '')}</span><span class="chip">${cur.format}</span><span class="sp"></span>
+    <span class="status" ${statusPill(cur.status)}>${COLS.find(c => c.k === cur.status)?.label || cur.status}</span>
+    <span class="chip">${esc(cur.persona || '')}</span><span class="chip">${esc(cur.lang || '')}</span><span class="chip">${cur.format}</span>${cur.vo?.on ? `<span class="chip">${ic('mic', 12)}${esc(cur.vo.voiceName || 'Voiceover')}</span>` : ''}<span class="sp"></span>
+    <button class="icon-btn" id="moreBtn" aria-label="More actions">${ic('more-horizontal')}</button>
     ${vs.length ? `<button class="btn ghost" id="revBtn" ${jobActive(cur.job) ? 'disabled' : ''}>${ic('rotate-ccw')}Send back to revision${open ? ` · ${open}` : ''}</button>
       ${cur.status === 'ready' ? `<button class="btn primary" id="upBtn">${ic('upload')}Mark uploaded</button>` : cur.status === 'uploaded' ? '' : `<button class="btn lime" id="okBtn">${ic('check')}Approve</button>`}`
       : `<button class="btn primary" id="genBtn" ${jobActive(cur.job) ? 'disabled' : ''}>${ic('sparkles')}Make v1 with Claude</button>`}
@@ -98,7 +164,7 @@ async function ad(id, keep) {
         <div class="stage ${isWide() ? 'wide' : ''}" id="stage"><span class="stag">v${ver.v}</span><video id="vid" src="${media(cur.id, ver.name)}" playsinline preload="auto"></video><canvas id="ann" width="${dims()[0]}" height="${dims()[1]}"></canvas><div class="ov" id="ov"></div></div>
         ${cmp ? `<div class="stage ${isWide() ? 'wide' : ''}"><span class="stag old">v${cmp.v}</span><video id="vid2" src="${media(cur.id, cmp.name)}" playsinline preload="auto" muted></video></div>` : ''}
       </div>
-      <div class="drawbar" id="drawbar" hidden>${['pen', 'arrow', 'box'].map(t => `<button type="button" class="tool" data-tool="${t}" aria-pressed="${t === 'arrow'}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+      <div class="drawbar" id="drawbar" hidden><span class="tool" aria-pressed="true" style="display:inline-flex;align-items:center;gap:6px">${ic('pen-line', 15)}Pen</span>
         ${['#F04070', '#B5F000', '#2563EB', '#FFFFFF'].map((c, i) => `<button type="button" class="sw" data-color="${c}" aria-pressed="${i === 0}" style="background:${c}" aria-label="Colour"></button>`).join('')}
         <span class="sp"></span><button type="button" class="tool" id="drawUndo">Undo</button><button type="button" class="tool" id="drawClear">Clear</button></div>
       <div class="scrub" id="scrub"><div class="tr"></div><div class="fill" id="fill"></div><i class="hd" id="hd"></i></div>
@@ -113,7 +179,7 @@ async function ad(id, keep) {
   </div>
   <div class="panel"><div class="tabs">${['Comments', 'Versions', 'Brief', 'Upload', 'Activity'].map(t => `<button class="tab" data-t="${t}" aria-selected="${t === tab}">${t}</button>`).join('')}</div><div class="tabp" id="tabp"></div></div></div>`;
   icons();
-  $('#statusSel').onchange = async e => { await api('/api/projects/' + cur.id, { method: 'PATCH', body: { status: e.target.value } }); toast('Status updated'); ad(cur.id, true); };
+  $('#moreBtn').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); adMenu(cur, r.right - 230, r.bottom + 6, () => ad(cur.id, true)); };
   $('#okBtn') && ($('#okBtn').onclick = async () => { await api('/api/projects/' + cur.id, { method: 'PATCH', body: { status: 'ready' } }); tab = 'Upload'; toast('Approved. Ready to upload'); ad(cur.id, true); });
   $('#upBtn') && ($('#upBtn').onclick = async () => { await api('/api/projects/' + cur.id, { method: 'PATCH', body: { status: 'uploaded' } }); toast('Marked as uploaded'); ad(cur.id, true); });
   $('#revBtn') && ($('#revBtn').onclick = openRevision);
@@ -197,7 +263,7 @@ document.addEventListener('keydown', e => {
 });
 
 // ---------- stage: pins, areas, drawing ----------
-let tool = 'arrow', color = '#F04070', live = null;
+let tool = 'pen', color = '#F04070', live = null; // drawing is freehand pen only
 function wireStage() {
   const stage = $('#stage'), cv = $('#ann'); if (!stage) return;
   const pt = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; };
@@ -217,7 +283,6 @@ function wireStage() {
     if (mode === 'area' && start) { start = null; if (draft.box.w < .02 || draft.box.h < .02) draft.box = null; overlay(); updateWhere(); $('#ctext')?.focus(); }
     if (mode === 'draw' && live) { const tiny = live.type === 'pen' ? live.pts.length < 3 : Math.hypot(live.x2 - live.x1, live.y2 - live.y1) < 14; if (!tiny) (draft.shapes = draft.shapes || []).push(live); live = null; redraw(); updateWhere(); }
   });
-  $$('[data-tool]').forEach(b => b.onclick = () => { tool = b.dataset.tool; $$('[data-tool]').forEach(x => x.setAttribute('aria-pressed', x === b)); });
   $$('[data-color]').forEach(b => b.onclick = () => { color = b.dataset.color; $$('[data-color]').forEach(x => x.setAttribute('aria-pressed', x === b)); });
   $('#drawUndo').onclick = () => { draft.shapes?.pop(); redraw(); updateWhere(); };
   $('#drawClear').onclick = () => { draft.shapes = []; redraw(); updateWhere(); };
@@ -264,7 +329,7 @@ function updateWhere() {
     range: `<span class="tc" id="inTc">${tcf(draft.t ?? t)}</span>→<span class="tc">${tcf(draft.t2 ?? t)}</span><button class="linkbtn" id="setIn">Set start</button><button class="linkbtn" id="setOut">Set end</button>`,
     pin: draft.pin ? `<span class="tc">${tcf(draft.t)}</span> Pin placed. Write what to change.` : 'Click on the video to drop a pin.',
     area: draft.box ? `<span class="tc">${tcf(draft.t)}</span> Area selected.` : 'Drag on the video to mark an area.',
-    draw: draft.shapes?.length ? `<span class="tc">${tcf(draft.t)}</span> ${draft.shapes.length} mark${draft.shapes.length > 1 ? 's' : ''} drawn.` : 'Draw on the frame with the pen, arrow or box.',
+    draw: draft.shapes?.length ? `<span class="tc">${tcf(draft.t)}</span> ${draft.shapes.length} stroke${draft.shapes.length > 1 ? 's' : ''} drawn.` : 'Draw on the frame with the pen.',
     video: `<span class="tc whole">Whole video</span> Applies to the entire ad`,
   }[mode];
   if (el.dataset.h !== hint) { el.dataset.h = hint; el.innerHTML = hint; $('#setIn') && ($('#setIn').onclick = () => { draft.t = V().currentTime; updateWhere(); wirePlayer.markers(); }); $('#setOut') && ($('#setOut').onclick = () => { draft.t2 = V().currentTime; updateWhere(); wirePlayer.markers(); }); }
@@ -327,9 +392,12 @@ function renderTab() {
   }
   if (tab === 'Brief') {
     p.innerHTML = `<label class="field">Persona<input id="bPersona" value="${esc(cur.persona)}"></label><label class="field">Language<input id="bLang" value="${esc(cur.lang)}"></label>
+      <div id="bVo"></div>
       <label class="field">Brief<small>Claude reads this every round, with the knowledge pages.</small><textarea id="bBrief" rows="10">${esc(cur.brief)}</textarea></label>
       <div class="row"><span class="sp"></span><button class="btn primary sm" id="bSave">Save brief</button></div>`;
-    $('#bSave').onclick = async () => { await api('/api/projects/' + cur.id, { method: 'PATCH', body: { brief: $('#bBrief').value, persona: $('#bPersona').value, lang: $('#bLang').value } }); toast('Brief saved'); cur = await api('/api/projects/' + cur.id); };
+    let bVo = () => cur.vo || { on: false }; voControl($('#bVo'), cur.vo).then(g => { bVo = g; });
+    $('#bSave').onclick = async () => { const vo = bVo(), voChanged = !!vo.on !== !!cur.vo?.on || (vo.on && vo.voice !== cur.vo?.voice);
+      await api('/api/projects/' + cur.id, { method: 'PATCH', body: { brief: $('#bBrief').value, persona: $('#bPersona').value, lang: $('#bLang').value, ...(voChanged ? { vo } : {}) } }); toast('Brief saved'); cur = await api('/api/projects/' + cur.id); };
   }
   if (tab === 'Upload') {
     const latest = cur.versions[0], u = cur.upload || {};
@@ -431,17 +499,97 @@ async function knowledge() {
   $('#lf').onsubmit = async e => { e.preventDefault(); const t = $('#lt').value.trim(); if (!t) return; await api('/api/learnings', { method: 'POST', body: { text: t } }); toast('Learning added'); knowledge(); };
 }
 
+// ---------- voiceover switch (new ad form and Brief tab) ----------
+// Fills el and returns a getter for { on, voice, voiceName }. Needs an ElevenLabs key saved in Settings.
+async function voControl(el, init = { on: false }) {
+  const st = await api('/api/settings').catch(() => null), hasKey = !!st?.elevenlabs.set;
+  el.className = 'vo';
+  el.innerHTML = `<div class="vo-h"><div class="vo-t"><b>${ic('mic', 15)}Voiceover</b><small data-hint></small></div>
+    <button type="button" class="switch" role="switch" aria-label="Voiceover" aria-checked="${!!(init.on && hasKey)}" ${hasKey ? '' : 'disabled'}><i></i></button></div>
+    <div class="vo-pick" hidden><select data-voice aria-label="Voice"><option value="">Loading voices…</option></select></div>`;
+  icons();
+  const sw = $('.switch', el), pick = $('.vo-pick', el), sel = $('[data-voice]', el), hintEl = $('[data-hint]', el);
+  let loaded = false;
+  const sync = async () => {
+    const on = sw.getAttribute('aria-checked') === 'true';
+    pick.hidden = !on;
+    hintEl.innerHTML = !hasKey ? 'Add your ElevenLabs key in <a href="#/settings" data-go>Settings</a> to turn this on.'
+      : on ? 'Claude writes the lines, and the voice sets the pace.' : 'Off: music and UI sounds only.';
+    $('[data-go]', el) && ($('[data-go]', el).onclick = () => el.closest('dialog')?.close());
+    if (on && !loaded) {
+      loaded = true;
+      try {
+        const vs = await api('/api/voices');
+        sel.innerHTML = vs.map(v => `<option value="${v.id}" ${v.id === init.voice ? 'selected' : ''}>${esc(v.name)}${v.desc ? ` · ${esc(v.desc)}` : ''}</option>`).join('') || '<option value="">No voices on this account</option>';
+      } catch (e) { loaded = false; sel.innerHTML = `<option value="">${esc(e.message)}</option>`; }
+    }
+  };
+  sw.onclick = () => { sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') !== 'true'); sync(); };
+  sync();
+  return () => {
+    const on = sw.getAttribute('aria-checked') === 'true' && !!sel.value;
+    return on ? { on, voice: sel.value, voiceName: sel.selectedOptions[0]?.textContent.split(' · ')[0] || '' } : { on: false };
+  };
+}
+
+// ---------- settings ----------
+async function settingsPage() {
+  claudeBox(); const st = await api('/api/settings');
+  const keyForm = (k, set, hint, ph) => `<form class="keyrow" data-k="${k}"><input type="password" autocomplete="off" spellcheck="false" placeholder="${set ? `Saved (${hint}). Paste a new key to replace it` : ph}">
+    <button class="btn primary sm">Save</button>${set ? `<button type="button" class="btn ghost sm" data-test>Test</button><button type="button" class="btn ghost sm" data-clear>Remove</button>` : ''}</form><p class="note" data-note hidden></p>`;
+  const s = st.sounds, allSounds = s.have >= s.total;
+  app.innerHTML = `<div class="head enter"><div><h1>Settings</h1><p class="muted" style="margin:4px 0 0">Keys are saved on this PC only (data/settings.json) and are never pushed to the repo.</p></div></div>
+  <div class="sgrid">
+    <section class="kcard enter"><div class="s-h">${ic('sparkles', 20)}<h2>Claude</h2></div>
+      <p class="muted">Runs every revision and drafts the upload captions.</p>
+      <div class="state ${st.anthropic.set ? 'on' : ''}"><span class="dot"></span>${st.anthropic.set ? `Using your Anthropic API key (${st.anthropic.hint})` : 'Using your signed-in Claude login on this PC'}</div>
+      ${keyForm('anthropicKey', st.anthropic.set, st.anthropic.hint, 'Anthropic API key (sk-ant-…)')}
+      <p class="small">Leave this empty on your own PC. If you give the tool to someone else, they add their own key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p></section>
+    <section class="kcard enter" style="animation-delay:40ms"><div class="s-h">${ic('mic', 20)}<h2>ElevenLabs</h2></div>
+      <p class="muted">Makes the voice for ads with voiceover turned on.</p>
+      <div class="state ${st.elevenlabs.set ? 'on' : ''}"><span class="dot"></span>${st.elevenlabs.set ? `Key saved (${st.elevenlabs.hint})` : 'No key yet: voiceover is off for every ad'}</div>
+      ${keyForm('elevenlabsKey', st.elevenlabs.set, st.elevenlabs.hint, 'ElevenLabs API key')}
+      <p class="small">Get one at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">elevenlabs.io</a>. It needs text to speech and voice read access. Lines that don’t change between versions are reused, so revisions only use credits for new lines.</p></section>
+    <section class="kcard enter" style="animation-delay:80ms"><div class="s-h">${ic('music', 20)}<h2>Sounds</h2></div>
+      <p class="muted">The music and sound effects from Mixkit. They can’t ship in the repo, so each PC downloads them once.</p>
+      <div class="state ${allSounds ? 'on' : ''}"><span class="dot"></span>${s.have} of ${s.total} files downloaded</div>
+      ${allSounds ? '' : `<button class="btn primary sm" id="getSounds">${ic('download', 15)}Download sounds</button>`}
+      ${s.error ? `<p class="note bad">${esc(s.error)}</p>` : ''}</section>
+  </div>`;
+  icons();
+  $$('.keyrow').forEach(f => {
+    const k = f.dataset.k, note = f.nextElementSibling, which = k === 'anthropicKey' ? 'anthropic' : 'elevenlabs';
+    const show = (t, bad) => { note.textContent = t; note.className = 'note' + (bad ? ' bad' : ' ok'); note.hidden = false; };
+    const test = async () => { try { show((await api('/api/settings/test', { method: 'POST', body: { which } })).note); } catch (e) { show(e.message, true); } };
+    f.onsubmit = async e => {
+      e.preventDefault(); const v = $('input', f).value.trim(); if (!v) return;
+      await api('/api/settings', { method: 'POST', body: { [k]: v } }); toast('Key saved');
+      await settingsPage(); $(`.keyrow[data-k="${k}"] [data-test]`)?.click();
+    };
+    $('[data-test]', f) && ($('[data-test]', f).onclick = test);
+    $('[data-clear]', f) && ($('[data-clear]', f).onclick = async () => {
+      if (await ask({ title: 'Remove this key?', text: which === 'anthropic' ? 'The studio goes back to your signed-in Claude login.' : 'Voiceover turns off until you add a key again.', ok: 'Remove', danger: true }) == null) return;
+      await api('/api/settings', { method: 'POST', body: { [k]: '' } }); toast('Key removed'); settingsPage();
+    });
+  });
+  $('#getSounds') && ($('#getSounds').onclick = () => downloadSounds($('#getSounds')).then(settingsPage));
+}
+
 // ---------- new ad ----------
 $$('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
+let voGet = () => ({ on: false }), tpls = [];
+const tplAbout = () => { const t = tpls.find(x => x.slug === $('#nTpl').value); $('#nTplAbout').textContent = t ? `${t.about}. Claude rewrites it for your brief.` : 'Claude builds it from your brief, starting from the closest existing ad.'; };
 $('#newBtn').onclick = async () => {
   $('#newForm').reset(); $('#newErr').hidden = true;
-  const ts = await api('/api/templates').catch(() => []);
-  $('#nTpl').innerHTML = '<option value="">Blank</option>' + ts.map(t => `<option value="${t.slug}">${esc(t.out || t.slug)}</option>`).join('');
+  tpls = await api('/api/templates').catch(() => []);
+  $('#nTpl').innerHTML = '<option value="">Let Claude pick</option>' + tpls.map(t => `<option value="${t.slug}">${esc(t.label)} · ${esc(t.lang)} · ${t.format} · ${t.secs}s</option>`).join('');
+  tplAbout(); $('#nTpl').onchange = tplAbout;
+  voGet = await voControl($('#nVo'));
   $('#newDlg').showModal();
 };
 $('#newForm').onsubmit = async e => {
   e.preventDefault();
-  try { const p = await api('/api/projects', { method: 'POST', body: { title: $('#nTitle').value.trim(), persona: $('#nPersona').value.trim(), lang: $('#nLang').value, format: $('#nFormat').value, template: $('#nTpl').value, brief: $('#nBrief').value } });
+  try { const p = await api('/api/projects', { method: 'POST', body: { title: $('#nTitle').value.trim(), persona: $('#nPersona').value.trim(), lang: $('#nLang').value, format: $('#nFormat').value, template: $('#nTpl').value, brief: $('#nBrief').value, vo: voGet() } });
     $('#newDlg').close(); toast('Brief created'); location.hash = '#/a/' + p.id; } catch (err) { $('#newErr').textContent = err.message; $('#newErr').hidden = false; }
 };
 
@@ -456,7 +604,7 @@ setInterval(async () => {
     cur.job = p.job; cur.progress = p.progress;
     const slot = $('#jobslot'), openLog = $('#logBox')?.innerHTML; slot.innerHTML = jobBar(p); icons(); wireJob(); if (openLog) $('#logBtn').click();
     claudeBox();
-  } else if (!location.hash.startsWith('#/knowledge')) {
+  } else if (!location.hash.startsWith('#/knowledge') && !location.hash.startsWith('#/settings')) {
     const ps = await api('/api/projects').catch(() => []); claudeBox(ps);
     if ($('.board') && ps.some(p => jobActive(p.job))) for (const p of ps) { const el = $(`.card[data-id="${p.id}"]`); if (el && el.closest('.col').dataset.k !== p.status) return board(); const j = el && $('.job', el); if (el) { const html = jobPill(p); if ((j?.outerHTML || '') !== html) { j ? j.outerHTML = html : $('.card-b', el).insertAdjacentHTML('beforeend', html); icons(); } } }
   }
@@ -465,7 +613,7 @@ setInterval(async () => {
 // ---------- router ----------
 function route() {
   const h = location.hash; let m;
-  const go = (m = h.match(/^#\/a\/(\w+)/)) ? (cur?.id !== m[1] && (mode = 'frame', draft = {}, tab = 'Comments', cmpV = null), ad(m[1])) : h.startsWith('#/knowledge') ? knowledge() : board();
+  const go = (m = h.match(/^#\/a\/(\w+)/)) ? (cur?.id !== m[1] && (mode = 'frame', draft = {}, tab = 'Comments', cmpV = null), ad(m[1])) : h.startsWith('#/knowledge') ? knowledge() : h.startsWith('#/settings') ? settingsPage() : board();
   go.catch(e => { app.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
 }
 window.addEventListener('hashchange', route); route();

@@ -9,7 +9,7 @@
 - **Overlays:** dim lightly (about 22%) so screens never look greyscale.
 
 ## Pacing (the middle ground the user approved)
-- No voiceover. Music plus soft UI sounds.
+- No voiceover unless the request turns it on. Music plus soft UI sounds.
 - One idea per beat. Captions are 7 words or fewer and stay up about 1s + 0.3s per word (never under about 2.3s on screen).
 - A UI result holds about 1.5–2s before the next beat. Transitions take about 0.6s.
 - Build timelines at a calm "source" pace and set `"speed": 1.3` in clip.json. The renderer samples `render(t*speed)` and divides cue times by speed.
@@ -28,3 +28,12 @@
 
 ## Timestamps in comments
 Reviewers comment on the rendered video, which runs at `speed` (usually 1.3). The build timeline time is **comment time × speed**. Revision requests list both.
+
+## Voiceover (only when the request turns it on)
+- The voice sets the pace. Write the lines first, make them with engine/tts.mjs, then time every beat to the real lengths it prints. Never guess a line's length.
+- One short sentence per line, plain spoken words, in English unless the brief says otherwise. Target phrases the learner says stay in the target language.
+- Leave about 0.6s of silence between lines and 1s or more before a new scene. Don't stack lines back to back.
+- A line takes secs × speed of build time (the clip timeline runs at the speed in clip.json). Hold its caption for at least that long, plus 0.4s.
+- Captions show the same words as the line, or a shorter version of them. They change only after the line ends.
+- Cue each line as { "src": "vo/<id>.mp3", "t": <build seconds>, "ss": 0, "to": <secs>, "v": 1 }. The renderer cleans up the voice and lowers the music under it.
+- Keep a line's id and text when a comment doesn't ask to change it. tts.mjs reuses it at no cost.

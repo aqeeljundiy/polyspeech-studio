@@ -1,14 +1,18 @@
 // Runs Claude in the background (Claude Agent SDK) for one revision request, reporting back to the studio.
 // node worker.mjs <projectId> <requestFile> <nextVersion> <port>
-// Uses the signed-in Claude account: ANTHROPIC_API_KEY is removed from the environment so the
-// subscription login is used instead of an API key.
+// Runs on the Anthropic API key saved in Settings (data/settings.json) when there is one. Without one,
+// ANTHROPIC_API_KEY is removed from the environment so the signed-in Claude login on this PC is used.
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, '$1');
 const env = () => {
   const e = { ...process.env }; delete e.ANTHROPIC_API_KEY;
+  let st = {}; try { st = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'settings.json'), 'utf8')); } catch {}
+  if (st.anthropicKey) e.ANTHROPIC_API_KEY = st.anthropicKey;
+  if (st.elevenlabsKey) e.ELEVENLABS_API_KEY = st.elevenlabsKey;
   const gitBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
   if (process.platform === 'win32' && !e.CLAUDE_CODE_GIT_BASH_PATH && fs.existsSync(gitBash)) e.CLAUDE_CODE_GIT_BASH_PATH = gitBash;
   return e;
@@ -42,11 +46,14 @@ async function main() {
 2. Read knowledge/style.md, knowledge/product.md and knowledge/learnings.md and follow them. When you rebuild app UI, take it from knowledge/visual-spec.md and engine/kit (kit.js, kit.css). Never claim anything listed under "Never claim".
 3. Edit only that project's clip.html and clip.json (and engine/kit only if a fix belongs in the shared kit). Address every open comment; if one can't be done, say why in your summary.
    If the working folder has no clip.html yet (a brand-new brief asking for v1), build one from the brief: copy the closest ad in engine/templates/ as a starting point and rewrite its story, screens, captions and cues for this brief. Match the request's format: 9:16 is 1080×1920, 16:9 is 1920×1080 (set w and h in clip.json and lay the scene out for landscape: phone or desktop UI on one side, captions on the other).
+   Voiceover: the request's Voiceover section says whether this ad has one. If it's on, follow knowledge/style.md (Voiceover): write lines.json in the working folder, run node engine/tts.mjs --clip <working source folder> --voice <id> --lines <working source folder>/lines.json, and time every caption and beat to the real line lengths it prints. If it's off, the ad has no voice cues.
 4. Check your work before the full render: node engine/render.mjs --clip <working source folder> --stills <times in build seconds> writes engine/out/still_<t>.jpg. Look at one still per changed beat at full size (alignment, centering, cropping, overlap, readable text). Fix and re-check.
-5. Render the full video with the exact render command from the request (it writes the output file and engine shows progress to the studio). Then copy clip.html and clip.json into the vN-src folder named in the request.
+5. Render the full video with the exact render command from the request (it writes the output file and engine shows progress to the studio). Then copy clip.html and clip.json (and the vo folder, if there is one) into the vN-src folder named in the request.
 6. For each comment marked as a lesson, add one short line to the top of the list in knowledge/learnings.md ("- YYYY-MM-DD · lesson").
 7. Finish with a 2-3 sentence plain summary of what changed in this version, for the reviewer.`;
 
+  // the Mixkit sounds aren't in the repo: fetch any that are missing (already downloaded ones are skipped)
+  spawnSync(process.execPath, [path.join(ROOT, 'engine', 'fetch-audio.mjs')], { cwd: ROOT, stdio: 'inherit', windowsHide: true });
   await post({ state: 'working', note: 'Claude is reading your comments' });
   let final = null, rendering = false;
   try {

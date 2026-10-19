@@ -223,3 +223,47 @@ label.icon-btn{cursor:pointer}
 @keyframes toastIn{from{opacity:0;transform:translate(-50%,10px)}}
 .enter{animation:enter .45s var(--ease) both}@keyframes enter{from{opacity:0;transform:translateY(10px)}}
 @media (max-width:1200px){.grid,.grid.wide{grid-template-columns:1fr}.player{position:static}}
+
+/* step buttons on cards, menus, confirm dialog */
+.card{position:relative}
+.card .more{position:absolute;top:8px;right:8px;z-index:2;width:30px;height:30px;border-radius:50%;border:0;display:grid;place-items:center;background:rgba(255,255,255,.92);color:var(--ink2);cursor:pointer;opacity:0;transform:scale(.9);transition:opacity .2s,transform .2s var(--ease),background .2s;box-shadow:0 4px 10px rgba(18,20,26,.12)}
+.card:hover .more,.card .more:focus-visible{opacity:1;transform:none}
+.card .more:hover{background:#fff;color:var(--ink)}
+.card .cact{width:100%;margin-top:10px}
+.menu{position:fixed;z-index:100;min-width:230px;background:var(--surface);border:1px solid var(--hair);border-radius:16px;padding:6px;box-shadow:var(--lift);animation:menuIn .18s var(--ease);transform-origin:top left}
+.menu.out{animation:menuOut .14s ease forwards}
+@keyframes menuIn{from{opacity:0;transform:translateY(-4px) scale(.97)}}@keyframes menuOut{to{opacity:0;transform:scale(.97)}}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;background:none;border-radius:10px;font-weight:600;font-size:13px;color:var(--ink);cursor:pointer;text-align:left;transition:background .15s}
+.menu button:hover,.menu button:focus-visible{background:var(--muted);outline:none}
+.menu button svg{color:var(--ink2)}
+.menu button.danger,.menu button.danger svg{color:var(--red)}
+.menu button.danger:hover{background:var(--redSoft)}
+.menu hr{border:0;border-top:1px solid var(--hair);margin:5px 4px}
+.btn.danger{background:var(--red);color:#fff}.btn.danger:hover{background:#B91C1C}
+.dlg.sm{width:min(420px,92vw)}
+span.status{display:inline-flex;align-items:center;height:28px;padding:0 12px;cursor:default;border-radius:999px;font-weight:700;font-size:12.5px}
+.banner{display:flex;align-items:center;gap:14px;padding:14px 16px;margin-bottom:16px;border-radius:18px;background:var(--amberSoft);color:var(--ink)}
+.banner>svg{color:var(--amber)}.banner .muted{font-size:12.5px;margin-top:2px}
+.small{font-size:12.5px;color:var(--ink3);font-weight:500}
+.small a,.vo small a{color:var(--blue);font-weight:600}
+/* voiceover switch */
+.vo{border:1px solid var(--hair);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.vo-h{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.vo-t{display:flex;flex-direction:column;gap:3px}.vo-t b{display:flex;align-items:center;gap:7px;font-size:13px}
+.vo-t small{color:var(--ink3);font-weight:500;font-size:12.5px}
+.switch{position:relative;flex:none;width:44px;height:26px;border-radius:999px;border:0;background:var(--hair);cursor:pointer;transition:background .25s var(--ease)}
+.switch i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(18,20,26,.2);transition:transform .3s var(--ease)}
+.switch[aria-checked="true"]{background:var(--blue)}.switch[aria-checked="true"] i{transform:translateX(18px)}
+.switch:disabled{opacity:.5;cursor:default}
+.vo-pick:not([hidden]){animation:fadeUp .3s var(--ease)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(-4px)}}
+/* settings */
+.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;align-items:start}
+.sgrid .kcard{display:flex;flex-direction:column;gap:12px}
+.sgrid .kcard p{margin:0}
+.s-h{display:flex;align-items:center;gap:10px}.s-h h2{margin:0}.s-h svg{color:var(--blue)}
+.state{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;padding:10px 12px;border-radius:12px;background:var(--muted)}
+.state .dot{width:8px;height:8px;border-radius:50%;background:var(--ink3)}
+.state.on{background:var(--greenSoft);color:var(--green)}.state.on .dot{background:var(--green)}
+.keyrow{display:flex;gap:8px;flex-wrap:wrap}.keyrow input{flex:1;min-width:180px}
+.note{font-size:12.5px;font-weight:600;margin:0;animation:fadeUp .25s var(--ease)}.note.ok{color:var(--green)}.note.bad{color:var(--red)}

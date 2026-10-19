@@ -11,6 +11,7 @@
   <nav class="nav">
     <a href="#/" data-nav="board"><i data-lucide="layout-dashboard"></i>Board</a>
     <a href="#/knowledge" data-nav="knowledge"><i data-lucide="book-open"></i>Knowledge</a>
+    <a href="#/settings" data-nav="settings"><i data-lucide="settings"></i>Settings</a>
   </nav>
   <div class="claude" id="claudeBox"></div>
   <button class="btn primary wide" id="newBtn" type="button"><i data-lucide="plus"></i>New ad</button>
@@ -25,10 +26,21 @@
     <div class="two"><label>Persona<input id="nPersona" placeholder="e.g. Busy professional"></label>
       <label>Language<select id="nLang"><option>Mandarin</option><option>Korean</option><option>Japanese</option><option>Spanish</option><option>French</option><option>All five</option></select></label></div>
     <div class="two"><label>Format<select id="nFormat"><option value="9:16">Reel · 9:16</option><option value="16:9">YouTube · 16:9</option></select></label>
-      <label>Start from<select id="nTpl"><option value="">Blank</option></select></label></div>
+      <label>Start from<select id="nTpl"><option value="">Let Claude pick</option></select></label></div>
+    <p class="small" id="nTplAbout" style="margin:-6px 0 0"></p>
+    <div id="nVo"></div>
     <label>Brief<textarea id="nBrief" rows="5" placeholder="Who is it for, the angle, the features to show, the feeling at the end."></textarea></label>
     <p class="err" id="newErr" hidden></p>
     <div class="dlg-f"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Create brief</button></div>
+  </form>
+</dialog>
+
+<dialog id="askDlg" class="dlg sm">
+  <form method="dialog">
+    <div class="dlg-h"><h2 id="askT"></h2><button type="button" class="icon-btn" aria-label="Close" data-close><i data-lucide="x"></i></button></div>
+    <p class="muted" id="askX" style="margin:0"></p>
+    <input id="askIn" aria-label="Name">
+    <div class="dlg-f"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" value="ok" class="btn primary" id="askOk">OK</button></div>
   </form>
 </dialog>
 

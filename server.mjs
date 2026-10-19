@@ -31,6 +31,26 @@ const dirOf = p => path.join(PROJECTS, p.slug);
 const workOf = p => path.join(WORK, p.slug);
 const clipCfg = p => { try { return JSON.parse(fs.readFileSync(path.join(workOf(p), 'clip.json'), 'utf8')); } catch { return {}; } };
 
+// ---------- settings (data/settings.json, never in the repo) ----------
+// anthropicKey: when set, Claude runs on this key; when empty, on the signed-in Claude login.
+// elevenlabsKey: for voiceover. Keys never leave this PC except to their own service.
+const SETTINGS_FILE = path.join(ROOT, 'data', 'settings.json');
+const settings = () => { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch { return {}; } };
+const hint = k => k ? '…' + k.slice(-4) : '';
+const AUDIO = path.join(ROOT, 'engine', 'audio');
+const soundList = () => { const src = fs.readFileSync(path.join(ROOT, 'engine', 'fetch-audio.mjs'), 'utf8'); return [...src.matchAll(/(\w+): \d+/g)].map(m => m[1]); };
+const soundStatus = () => { const all = soundList(); const have = all.filter(n => fs.existsSync(path.join(AUDIO, n + '.mp3'))).length; return { have, total: all.length, running: !!soundJob, error: soundErr }; };
+let soundJob = null, soundErr = '';
+let voiceCache = null; // { key, at, list }
+async function voices() {
+  const key = settings().elevenlabsKey; if (!key) return [];
+  if (voiceCache?.key === key && Date.now() - voiceCache.at < 600000) return voiceCache.list;
+  const r = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': key } });
+  if (!r.ok) throw new Error(r.status === 401 ? 'ElevenLabs didn’t accept that key.' : `ElevenLabs returned ${r.status}.`);
+  const list = (await r.json()).voices.map(v => ({ id: v.voice_id, name: v.name, desc: [v.labels?.gender, v.labels?.age, v.labels?.accent].filter(Boolean).join(', ') })).sort((a, b) => a.name.localeCompare(b.name));
+  voiceCache = { key, at: Date.now(), list }; return list;
+}
+
 // ---------- versions on disk ----------
 function versions(p) {
   const d = dirOf(p); if (!fs.existsSync(d)) return [];
@@ -76,6 +96,7 @@ function writeRequest(p, type, notes) {
     `- Output: ${rel(path.join(dirOf(p), `v${next}.mp4`))}  (render: node engine/render.mjs --clip ${rel(workOf(p))} --outfile ${rel(path.join(dirOf(p), `v${next}.mp4`))})`,
     `- After rendering, copy clip.html and clip.json into ${rel(path.join(dirOf(p), `v${next}-src`))}/`, '',
     '## Brief', '', p.brief || '(none)', '',
+    '## Voiceover', '', p.vo?.on ? `On. Voice: ${p.vo.voiceName || p.vo.voice} (id ${p.vo.voice}). Write the lines, make them with node engine/tts.mjs (see knowledge/style.md, Voiceover) and add them as cues. Keep every existing line that a comment doesn’t ask to change: tts.mjs reuses unchanged lines without new cost.` : 'Off. Music and UI sounds only; remove any voice cues if a template had them.', '',
     notes ? `## Overall notes for this round\n\n${notes}\n` : '',
     open.length ? `## Open review comments (${open.length})\n\n${open.map(c => describe(c, speed)).join('\n')}\n` : '## Open review comments\n\n(none)\n',
   ].join('\n');
@@ -129,6 +150,7 @@ function serveFile(req, res, file, download) {
   res.writeHead(200, { 'Content-Length': size, 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-cache', ...extra });
   fs.createReadStream(file).pipe(res);
 }
+const jobActive = p => p.job && ['queued', 'working', 'rendering'].includes(p.job.state);
 const find = pid => db.projects.find(x => x.id === pid);
 
 // ---------- routes ----------
@@ -136,12 +158,12 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x'); const p = url.pathname; const m = req.method; let mm;
   try {
     if (p === '/api/projects' && m === 'GET') return send(res, 200, db.projects.map(summary));
-    if (p === '/api/templates' && m === 'GET') return send(res, 200, fs.readdirSync(TEMPLATES).filter(d => fs.existsSync(path.join(TEMPLATES, d, 'clip.json'))).map(d => ({ slug: d, ...JSON.parse(fs.readFileSync(path.join(TEMPLATES, d, 'clip.json'), 'utf8')), cues: undefined, music: undefined })));
+    if (p === '/api/templates' && m === 'GET') return send(res, 200, fs.readdirSync(TEMPLATES).filter(d => fs.existsSync(path.join(TEMPLATES, d, 'clip.json'))).map(d => { const c = JSON.parse(fs.readFileSync(path.join(TEMPLATES, d, 'clip.json'), 'utf8')); return { slug: d, label: c.label || d, lang: c.lang || '', format: c.h > c.w ? '9:16' : '16:9', secs: Math.round((c.dur || 0) / (c.speed || 1)), about: c.about || '' }; }));
     if (p === '/api/projects' && m === 'POST') {
       // new ad from a brief, optionally starting from a template's source
       const b = await readJson(req); if (!b.title) return send(res, 400, { error: 'Give the ad a title.' });
       let s = slug(b.title); while (db.projects.some(x => x.slug === s)) s += '-2';
-      const pr = { id: id(), slug: s, title: b.title, persona: b.persona || '', lang: b.lang || '', format: b.format === '16:9' ? '16:9' : '9:16', brief: b.brief || '', status: 'brief', created: now(), updated: now(), activity: [], upload: {} };
+      const pr = { id: id(), slug: s, title: b.title, persona: b.persona || '', lang: b.lang || '', format: b.format === '16:9' ? '16:9' : '9:16', brief: b.brief || '', vo: b.vo?.on && b.vo.voice ? { on: true, voice: String(b.vo.voice), voiceName: String(b.vo.voiceName || '') } : { on: false }, status: 'brief', created: now(), updated: now(), activity: [], upload: {} };
       fs.mkdirSync(dirOf(pr), { recursive: true }); fs.mkdirSync(workOf(pr), { recursive: true });
       if (b.template && fs.existsSync(path.join(TEMPLATES, b.template))) for (const f of ['clip.html', 'clip.json']) fs.copyFileSync(path.join(TEMPLATES, b.template, f), path.join(workOf(pr), f));
       log(pr, 'Brief created'); db.projects.push(pr); save(); return send(res, 201, summary(pr));
@@ -151,12 +173,16 @@ const server = http.createServer(async (req, res) => {
       if (m === 'GET') return send(res, 200, { ...summary(pr), versions: versions(pr), comments: db.comments.filter(c => c.project === pr.id), speed: clipCfg(pr).speed || 1 });
       if (m === 'PATCH') {
         const b = await readJson(req);
+        // steps only move by their buttons: Rendering and Revision are set by Claude's jobs, never by hand
+        const MOVES = { review: ['ready'], ready: ['review', 'uploaded'], uploaded: ['ready'] };
+        if (b.status && b.status !== pr.status && !(MOVES[pr.status] || []).includes(b.status)) return send(res, 409, { error: 'That step can’t be changed by hand.' });
         if (b.status && STATUSES.includes(b.status) && b.status !== pr.status) { log(pr, `Moved to ${b.status}`); pr.status = b.status; if (b.status === 'uploaded') pr.uploadedAt = now(); }
-        for (const k of ['title', 'brief', 'persona', 'lang']) if (typeof b[k] === 'string' && b[k] !== pr[k]) { pr[k] = b[k]; if (k === 'brief') log(pr, 'Brief updated'); }
+        for (const k of ['title', 'brief', 'persona', 'lang']) if (typeof b[k] === 'string' && b[k] !== pr[k]) { if (k === 'title' && !b[k].trim()) continue; if (k === 'title') log(pr, `Renamed from “${pr.title}”`); pr[k] = k === 'title' ? b[k].trim() : b[k]; if (k === 'brief') log(pr, 'Brief updated'); }
+        if (b.vo && typeof b.vo === 'object') { pr.vo = b.vo.on && b.vo.voice ? { on: true, voice: String(b.vo.voice), voiceName: String(b.vo.voiceName || '') } : { on: false }; log(pr, pr.vo.on ? `Voiceover on (${pr.vo.voiceName})` : 'Voiceover off'); }
         if (b.upload && typeof b.upload === 'object') pr.upload = { ...(pr.upload || {}), ...b.upload };
         save(); return send(res, 200, summary(pr));
       }
-      if (m === 'DELETE') { db.projects = db.projects.filter(x => x !== pr); db.comments = db.comments.filter(c => c.project !== pr.id); save(); return send(res, 200, { ok: true }); }
+      if (m === 'DELETE') { if (jobActive(pr)) return send(res, 409, { error: 'Claude is working on this ad. Cancel the job first.' }); fs.rmSync(dirOf(pr), { recursive: true, force: true }); fs.rmSync(workOf(pr), { recursive: true, force: true }); db.projects = db.projects.filter(x => x !== pr); db.comments = db.comments.filter(c => c.project !== pr.id); save(); return send(res, 200, { ok: true }); }
     }
     // comments: frame, range, pin, area or whole video; optional drawing; threaded replies
     if ((mm = p.match(/^\/api\/projects\/(\w+)\/comments$/)) && m === 'POST') {
@@ -225,6 +251,28 @@ const server = http.createServer(async (req, res) => {
       const { captions } = await import('./worker.mjs');
       const out = await captions(pr, fs.readFileSync(path.join(KNOW, 'product.md'), 'utf8'));
       pr.upload = { ...(pr.upload || {}), ...out }; log(pr, 'Captions drafted'); save(); return send(res, 200, pr.upload);
+    }
+    // settings
+    if (p === '/api/settings' && m === 'GET') { const st = settings(); return send(res, 200, { anthropic: { set: !!st.anthropicKey, hint: hint(st.anthropicKey) }, elevenlabs: { set: !!st.elevenlabsKey, hint: hint(st.elevenlabsKey) }, sounds: soundStatus() }); }
+    if (p === '/api/settings' && m === 'POST') {
+      const b = await readJson(req), st = settings();
+      for (const k of ['anthropicKey', 'elevenlabsKey']) if (typeof b[k] === 'string') { const v = b[k].trim(); if (v) st[k] = v; else delete st[k]; }
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(st, null, 2)); voiceCache = null; return send(res, 200, { ok: true });
+    }
+    // checks a saved key against its service
+    if (p === '/api/settings/test' && m === 'POST') {
+      const b = await readJson(req), st = settings();
+      if (b.which === 'elevenlabs') { voiceCache = null; const v = await voices().catch(e => { throw Object.assign(e, { status: 400 }); }); return send(res, 200, { ok: true, note: `Key works. ${v.length} voices available.` }); }
+      if (!st.anthropicKey) return send(res, 200, { ok: true, note: 'No key saved: the studio uses your signed-in Claude login.' });
+      const r = await fetch('https://api.anthropic.com/v1/models', { headers: { 'x-api-key': st.anthropicKey, 'anthropic-version': '2023-06-01' } });
+      return r.ok ? send(res, 200, { ok: true, note: 'Key works.' }) : send(res, 400, { error: r.status === 401 ? 'Anthropic didn’t accept that key.' : `Anthropic returned ${r.status}.` });
+    }
+    if (p === '/api/voices' && m === 'GET') { try { return send(res, 200, await voices()); } catch (e) { return send(res, 400, { error: e.message }); } }
+    // one-click sound download (Mixkit files can't ship in the repo)
+    if (p === '/api/sounds' && m === 'POST') {
+      if (!soundJob) { soundErr = ''; let out = ''; soundJob = spawn(process.execPath, [path.join(ROOT, 'engine', 'fetch-audio.mjs')], { cwd: ROOT, windowsHide: true });
+        soundJob.stderr.on('data', d => { out += d; }); soundJob.on('exit', () => { soundJob = null; const st = soundStatus(); if (st.have < st.total) soundErr = out.trim().split(/\r?\n/).pop() || 'Some sounds didn’t download. Try again.'; }); }
+      return send(res, 200, soundStatus());
     }
     // knowledge
     if (p === '/api/knowledge' && m === 'GET') return send(res, 200, Object.fromEntries(['product', 'style', 'learnings'].map(k => [k, fs.readFileSync(path.join(KNOW, k + '.md'), 'utf8')])));
