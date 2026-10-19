@@ -10,7 +10,9 @@ import FF from 'ffmpeg-static';
 
 const DIR = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, '$1');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
-const CLIP = path.resolve(DIR, arg('--clip', '.'));
+// --clip may be relative to the current folder (how the studio passes it) or to engine/
+const clipArg = arg('--clip', '.');
+const CLIP = fs.existsSync(path.resolve(clipArg)) ? path.resolve(clipArg) : path.resolve(DIR, clipArg);
 const cfg = fs.existsSync(path.join(CLIP, 'clip.json')) ? JSON.parse(fs.readFileSync(path.join(CLIP, 'clip.json'), 'utf8')) : {};
 // speed > 1 plays the clip's timeline faster: frames sample render(t*SPEED), cue times divide by SPEED.
 const SPEED = cfg.speed || 1;

@@ -73,7 +73,7 @@ const card = p => `<article class="card" draggable="true" data-id="${p.id}">
 
 // ---------- ad review ----------
 let cur = null, curV = null, cmpV = null, tab = 'Comments';
-let mode = 'frame', draft = {}, filt = { state: 'open', scope: 'this' };
+let mode = 'frame', draft = {}, filt = { state: 'open', scope: 'this' }, pending = []; // pending = files attached to the next comment
 const isWide = () => cur?.format === '16:9';
 const dims = () => isWide() ? [1920, 1080] : [1080, 1920];
 
@@ -288,7 +288,9 @@ function renderTab() {
         <div class="modes">${Object.entries(KIND).map(([k, [i, l]]) => `<button type="button" class="mode" data-m="${k}" aria-pressed="${k === mode}">${ic(i, 15)}${l}</button>`).join('')}</div>
         <div class="where" id="where"></div>
         <textarea id="ctext" rows="3" placeholder="What should change? Press C to jump here."></textarea>
-        <div class="row"><span class="muted" style="font-size:12px">Comments go to Claude when you send this back.</span><span class="sp"></span><button class="btn primary sm" type="submit" id="cSubmit">Comment</button></div></form>` : ''}
+        <div class="atts" id="atts"></div>
+        <div class="row"><label class="icon-btn" title="Attach a reference (image, video or PDF)">${ic('paperclip')}<input type="file" id="attIn" multiple accept="image/*,video/*,application/pdf" hidden></label>
+          <span class="muted" style="font-size:12px">Comments go to Claude when you send this back.</span><span class="sp"></span><button class="btn primary sm" type="submit" id="cSubmit">Comment</button></div></form>` : ''}
       <div class="filters"><button class="fbtn" data-f="open" aria-pressed="${filt.state === 'open'}">Open</button><button class="fbtn" data-f="resolved" aria-pressed="${filt.state === 'resolved'}">Resolved</button><button class="fbtn" data-f="all" aria-pressed="${filt.state === 'all'}">All</button><span class="sp"></span>
         <button class="fbtn" data-s="this" aria-pressed="${filt.scope === 'this'}">v${curV ?? '–'}</button><button class="fbtn" data-s="all" aria-pressed="${filt.scope === 'all'}">All versions</button></div>
       <div id="clist" style="display:flex;flex-direction:column;gap:10px">${commentList()}</div>`;
@@ -297,16 +299,24 @@ function renderTab() {
     $$('[data-f]').forEach(b => b.onclick = () => { filt.state = b.dataset.f; renderTab(); });
     $$('[data-s]').forEach(b => b.onclick = () => { filt.scope = b.dataset.s; renderTab(); });
     $('#ctext')?.addEventListener('focus', () => { V()?.pause(); });
+    // reference files on the comment: previewed here, sent with the comment
+    const renderAtts = () => { const el = $('#atts'); if (!el) return;
+      el.innerHTML = pending.map((f, i) => `<div class="att">${f.type.startsWith('image/') ? `<img src="${f.url}" alt="">` : ic(f.type.startsWith('video/') ? 'film' : 'file-text', 18)}<span>${esc(f.name)}</span><button type="button" class="icon-btn" data-rm="${i}" aria-label="Remove">${ic('x', 14)}</button></div>`).join('');
+      icons(); $$('[data-rm]', el).forEach(b => b.onclick = () => { URL.revokeObjectURL(pending[+b.dataset.rm].url); pending.splice(+b.dataset.rm, 1); renderAtts(); }); };
+    $('#attIn') && ($('#attIn').onchange = e => { for (const f of e.target.files) { if (f.size > 25e6) { toast(`${f.name} is over 25 MB`); continue; } pending.push({ file: f, name: f.name, type: f.type || 'application/octet-stream', url: URL.createObjectURL(f) }); } e.target.value = ''; renderAtts(); });
+    renderAtts();
     $('#cform') && ($('#cform').onsubmit = async e => {
       e.preventDefault(); const text = $('#ctext').value.trim(); if (!text) return toast('Write what should change');
       const v = V(), t = v ? v.currentTime : 0;
       if (mode === 'pin' && !draft.pin) return toast('Click on the video to drop the pin first');
       if (mode === 'area' && !draft.box) return toast('Drag on the video to mark the area first');
       const kind = mode === 'draw' ? 'frame' : mode;
-      const body = { v: curV, kind, text, t: draft.t ?? t, t2: mode === 'range' ? (draft.t2 ?? t) : undefined, pin: draft.pin, box: draft.box, shapes: draft.shapes, snapshot: snapshot() };
+      const toData = f => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(f); });
+      const attachments = await Promise.all(pending.map(async p => ({ name: p.name, data: await toData(p.file) })));
+      const body = { v: curV, kind, text, t: draft.t ?? t, t2: mode === 'range' ? (draft.t2 ?? t) : undefined, pin: draft.pin, box: draft.box, shapes: draft.shapes, snapshot: snapshot(), attachments };
       if (mode === 'range' && body.t2 <= body.t) return toast('Set an end time after the start');
       $('#cSubmit').disabled = true;
-      try { const c = await api(`/api/projects/${cur.id}/comments`, { method: 'POST', body }); $('#ctext').value = ''; resetDraft(); await refresh(); focusComment(c.id); toast('Comment added'); }
+      try { const c = await api(`/api/projects/${cur.id}/comments`, { method: 'POST', body }); $('#ctext').value = ''; pending.forEach(p => URL.revokeObjectURL(p.url)); pending = []; renderAtts(); resetDraft(); await refresh(); focusComment(c.id); toast('Comment added'); }
       catch (err) { toast(err.message); } finally { $('#cSubmit') && ($('#cSubmit').disabled = false); }
     });
   }
@@ -359,6 +369,7 @@ function commentList() {
       <div class="row">${when}</div>
       ${c.snapshot ? `<img class="snap" src="${media(cur.id, c.snapshot)}" data-t="${c.t}" alt="Marked frame">` : ''}
       <p class="ctext">${esc(c.text)}</p>
+      ${(c.attachments || []).length ? `<div class="catts">${c.attachments.map(a => a.type.startsWith('image/') ? `<a href="${media(cur.id, a.file)}" target="_blank" rel="noopener" title="${esc(a.name)}"><img src="${media(cur.id, a.file)}" alt="${esc(a.name)}"></a>` : `<a class="att" href="${media(cur.id, a.file)}" target="_blank" rel="noopener">${ic(a.type.startsWith('video/') ? 'film' : 'file-text', 16)}<span>${esc(a.name)}</span></a>`).join('')}</div>` : ''}
       ${(c.replies || []).length ? `<div class="replies">${c.replies.map(r => `<div class="reply"><span class="av ${r.author === 'Claude' ? 'c' : ''}">${r.author === 'Claude' ? 'AI' : 'YO'}</span><div><b style="font-size:12.5px">${esc(r.author)}</b> <span class="when">${ago(r.at)}</span><p style="margin:2px 0 0">${esc(r.text)}</p></div></div>`).join('')}</div>` : ''}
       <div class="acts"><button class="linkbtn" data-reply="${c.id}">Reply</button><button class="linkbtn" data-edit="${c.id}">Edit</button>
         <button class="linkbtn ${c.learn ? 'lesson' : ''}" data-learn="${c.id}" title="Claude adds this to the learnings when it revises">${c.learn ? 'Lesson ✓' : 'Make it a lesson'}</button>

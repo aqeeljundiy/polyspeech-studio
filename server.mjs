@@ -62,7 +62,7 @@ function describe(c, speed) {
   const pos = c.kind === 'pin' && c.pin ? ` · pinned at ${Math.round(c.pin.x * 100)}% across, ${Math.round(c.pin.y * 100)}% down`
     : c.kind === 'area' && c.box ? ` · area x ${Math.round(c.box.x * 100)}–${Math.round((c.box.x + c.box.w) * 100)}%, y ${Math.round(c.box.y * 100)}–${Math.round((c.box.y + c.box.h) * 100)}%` : '';
   const replies = (c.replies || []).map(r => `\n    - reply (${r.author}): ${r.text}`).join('');
-  return `- [${c.kind}] v${c.v} @ ${where}${pos}: ${c.text}${c.snapshot ? `\n    - Frame with markup: ${path.join(dirOf(db.projects.find(x => x.id === c.project)), c.snapshot)}` : ''}${c.learn ? '\n    - Reviewer marked this as a lesson: add it to knowledge/learnings.md' : ''}${replies}`;
+  return `- [${c.kind}] v${c.v} @ ${where}${pos}: ${c.text}${c.snapshot ? `\n    - Frame with markup: ${path.join(dirOf(db.projects.find(x => x.id === c.project)), c.snapshot)}` : ''}${(c.attachments || []).map(a => `\n    - Attached reference (${a.type}): ${path.join(dirOf(db.projects.find(x => x.id === c.project)), a.file)}`).join('')}${c.learn ? '\n    - Reviewer marked this as a lesson: add it to knowledge/learnings.md' : ''}${replies}`;
 }
 function writeRequest(p, type, notes) {
   const vs = versions(p), next = (vs[0]?.v || 0) + 1, cfg = clipCfg(p), speed = cfg.speed || 1;
@@ -113,8 +113,8 @@ function finish(p, note) {
 
 // ---------- http helpers ----------
 const send = (res, code, body, type = 'application/json', extra = {}) => { res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', ...extra }); res.end(type === 'application/json' ? JSON.stringify(body) : body); };
-const readJson = req => new Promise((ok, bad) => { let b = ''; req.on('data', d => { b += d; if (b.length > 15e6) req.destroy(); }); req.on('end', () => { try { ok(b ? JSON.parse(b) : {}); } catch (e) { bad(e); } }); });
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.md': 'text/markdown; charset=utf-8', '.woff2': 'font/woff2' };
+const readJson = req => new Promise((ok, bad) => { let b = ''; req.on('data', d => { b += d; if (b.length > 80e6) req.destroy(); }); req.on('end', () => { try { ok(b ? JSON.parse(b) : {}); } catch (e) { bad(e); } }); });
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.md': 'text/markdown; charset=utf-8', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.pdf': 'application/pdf', '.mov': 'video/quicktime', '.webm': 'video/webm', '.woff2': 'font/woff2' };
 function serveFile(req, res, file, download) {
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return send(res, 404, { error: 'Not found' });
   const size = fs.statSync(file).size, type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
@@ -170,6 +170,16 @@ const server = http.createServer(async (req, res) => {
       if (Array.isArray(b.shapes) && b.shapes.length) c.shapes = b.shapes.slice(0, 200);
       const snap = typeof b.snapshot === 'string' && b.snapshot.match(/^data:image\/(jpeg|png);base64,(.+)$/);
       if (snap) { const dir = path.join(dirOf(pr), '_review'); fs.mkdirSync(dir, { recursive: true }); const f = `v${c.v}_${String(Math.round(c.t * 30)).padStart(5, '0')}_${c.id}.jpg`; fs.writeFileSync(path.join(dir, f), Buffer.from(snap[2], 'base64')); c.snapshot = '_review/' + f; }
+      // reference files attached to the comment (images, videos, PDFs), saved next to the project
+      if (Array.isArray(b.attachments) && b.attachments.length) {
+        const dir = path.join(dirOf(pr), '_attachments'); fs.mkdirSync(dir, { recursive: true }); c.attachments = [];
+        for (const a of b.attachments.slice(0, 8)) {
+          const mt = typeof a.data === 'string' && a.data.match(/^data:([\w.+-]+\/[\w.+-]+);base64,(.+)$/); if (!mt) continue;
+          const name = String(a.name || 'file').replace(/[^\w.\- ]+/g, '_').slice(0, 80);
+          const f = `${c.id}_${name}`; fs.writeFileSync(path.join(dir, f), Buffer.from(mt[2], 'base64'));
+          c.attachments.push({ name, file: '_attachments/' + f, type: mt[1] });
+        }
+      }
       db.comments.push(c); log(pr, `Comment on v${c.v}`); save(); return send(res, 201, c);
     }
     if ((mm = p.match(/^\/api\/comments\/(\w+)$/))) {

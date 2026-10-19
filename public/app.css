@@ -158,6 +158,16 @@ textarea,input,select{border:1px solid var(--hair);border-radius:12px;padding:10
 textarea:focus,input:focus,select:focus{border-color:var(--blue);box-shadow:0 0 0 4px rgba(37,99,235,.1)}
 .composer textarea{border:0;padding:4px 2px;box-shadow:none;resize:none}
 .row{display:flex;align-items:center;gap:8px}
+.atts:empty{display:none}
+.atts,.catts{display:flex;flex-wrap:wrap;gap:8px}
+.att{display:inline-flex;align-items:center;gap:8px;max-width:100%;height:44px;padding:4px 4px 4px 4px;border-radius:12px;background:var(--muted);font-size:12.5px;font-weight:600;color:var(--ink2);animation:fadeIn .25s var(--ease)}
+.att img{width:36px;height:36px;border-radius:8px;object-fit:cover}
+.att span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;padding-right:2px}
+.att .icon-btn{width:28px;height:28px}
+.catts img{width:88px;height:88px;border-radius:12px;object-fit:cover;border:1px solid var(--hair);transition:transform .2s var(--ease)}
+.catts img:hover{transform:scale(1.04)}
+.catts .att{padding:0 12px;height:36px}
+label.icon-btn{cursor:pointer}
 .snapdraft{display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;background:var(--muted)}
 .snapdraft img{height:56px;border-radius:8px}
 /* comments */
