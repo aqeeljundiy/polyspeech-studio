@@ -1,0 +1,15 @@
+{
+  "name": "polyspeech-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Polyspeech Studio: review board for Polyspeech motion-graphics ads, with Claude processing revisions in the background",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.303",
+    "busboy": "^1.6.0"
+  }
+}

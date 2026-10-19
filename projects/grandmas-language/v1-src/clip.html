@@ -1,0 +1,199 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700&display=block" rel="stylesheet">
+<link rel="stylesheet" href="../../kit/kit.css">
+<style>
+html,body{width:1080px;height:1920px;overflow:hidden;background:#F4F6FC}
+#stage{position:absolute;inset:0;overflow:hidden;font-family:'Plus Jakarta Sans','Noto Sans KR',sans-serif}
+.glow{position:absolute;border-radius:50%;filter:blur(110px)}
+#persp{position:absolute;inset:0;perspective:2600px}
+#cam{position:absolute;left:0;top:0;transform-origin:0 0}
+.real{position:absolute;inset:0}
+.thread{position:absolute;left:110px;top:560px;width:860px;border-radius:48px;background:#fff;box-shadow:0 50px 110px -30px rgba(18,20,40,.28);padding:0 0 46px;overflow:hidden}
+.thread .hd{display:flex;flex-direction:column;align-items:center;gap:10px;padding:34px 0 26px;border-bottom:2px solid #F0EEE9}
+.avatar{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#FDE8EE,#F9C9D6);display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:700;color:#B4234E}
+.mb{max-width:600px;padding:26px 34px;border-radius:40px;font-size:44px;line-height:1.25;font-weight:600}
+.mb.in{background:#EEF0F4;color:#12141A;border-bottom-left-radius:12px}
+.mb.out{background:#2563EB;color:#fff;border-bottom-right-radius:12px;margin-left:auto}
+.mb .tl{display:block;font-size:28px;font-weight:500;opacity:.7;margin-top:6px}
+#title{position:absolute;left:60px;right:60px;top:860px;text-align:center;font-size:104px;font-weight:800;letter-spacing:-.04em;line-height:1.05}
+#title .w{display:inline-block;margin:0 .1em}
+#call{position:absolute;left:140px;top:520px;width:800px;height:520px;border-radius:52px;background:linear-gradient(160deg,#1C2340,#2B3566 60%,#3B4A8C);color:#fff;display:flex;flex-direction:column;align-items:center;padding-top:60px;box-shadow:0 50px 110px -30px rgba(20,30,80,.5)}
+#call .avatar{width:150px;height:150px;font-size:64px}
+#wipe{position:absolute;inset:0;background:#B5F000}
+</style></head><body>
+<div id="stage">
+  <div class="glow" id="g1" style="width:900px;height:900px;background:#CFE0FF"></div>
+  <div class="glow" id="g2" style="width:760px;height:760px;background:#FFE0EA"></div>
+  <div class="glow" id="g3" style="width:620px;height:620px;background:#E8FFB0"></div>
+
+  <!-- 1. the texts -->
+  <div class="real" id="texts">
+    <div class="thread" id="thread">
+      <div class="hd"><div class="avatar">할</div><div style="font-size:34px;font-weight:700">할머니</div><div style="font-size:26px;color:#9A9EA8;margin-top:-6px">Grandma</div></div>
+      <div style="padding:40px 44px 0;display:flex;flex-direction:column;gap:22px">
+        <div style="text-align:center;font-size:24px;color:#9A9EA8;font-weight:600">Sunday 7:02 PM</div>
+        <div class="mb in" id="m1">밥은 먹었니?<span class="tl">Have you eaten?</span></div>
+        <div class="mb out" id="mdots" style="display:flex;gap:10px;padding:30px 34px;width:max-content"><i style="width:14px;height:14px;border-radius:50%;background:#fff;display:block"></i><i style="width:14px;height:14px;border-radius:50%;background:#fff;display:block"></i><i style="width:14px;height:14px;border-radius:50%;background:#fff;display:block"></i></div>
+        <div class="mb out" id="m2">yeah grandma, I ate!</div>
+      </div>
+    </div>
+  </div>
+  <!-- 2. title -->
+  <div id="title"></div>
+  <img id="burstMas" src="../../kit/mascot.png" style="position:absolute;left:390px;top:560px;width:300px;height:300px">
+  <div id="wipe"></div>
+
+  <!-- 7. the call -->
+  <div class="real" id="callL">
+    <div id="call"><div class="avatar">할</div><div style="font-size:64px;font-weight:700;margin-top:26px">할머니</div><div id="callSt" style="font-size:32px;opacity:.75;margin-top:8px">calling…</div>
+      <div class="row" style="gap:60px;margin-top:auto;margin-bottom:56px"><div id="muteIc" style="width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center"></div><div id="endIc" style="width:100px;height:100px;border-radius:50%;background:#EF4444;display:flex;align-items:center;justify-content:center"></div><div id="spkIc" style="width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center"></div></div></div>
+    <div class="mb out" id="c1" style="position:absolute;right:110px;top:1110px;font-size:50px">할머니, 진지 드셨어요?<span class="tl">Grandma, have you eaten?</span></div>
+    <div class="mb in" id="c2" style="position:absolute;left:110px;top:1360px;font-size:50px;background:#fff;box-shadow:0 24px 60px -20px rgba(18,20,40,.25)">아이고, 우리 손자!<span class="tl">Oh my, my grandson!</span></div>
+  </div>
+
+  <div id="persp"><div id="cam"><div id="phoneWrap"></div></div></div>
+  <div id="scrim" style="position:absolute;left:0;right:0;top:0;height:620px;background:linear-gradient(180deg,#EEF2FC 0%,#EEF2FC 70%,rgba(238,242,252,0) 100%);pointer-events:none"></div>
+  <div class="layer" id="caps"></div>
+  <div class="tap" id="tap"></div><div class="tapr" id="tapr"></div>
+  <div class="layer" id="endL">
+    <img id="endMas" src="../../kit/mascot.png" style="position:absolute;left:350px;top:520px;width:380px;height:380px">
+    <div id="word" style="position:absolute;left:0;right:0;top:950px;text-align:center;font-size:132px;font-weight:800;letter-spacing:-6px"></div>
+    <div id="pillw" style="position:absolute;left:50%;top:1130px;height:92px;border-radius:46px;padding:3px;overflow:hidden;box-shadow:0 18px 50px -10px rgba(37,99,235,.4)"><div id="pillbg" style="position:absolute;left:50%;top:50%;width:1000px;height:1000px;margin:-500px 0 0 -500px;background:conic-gradient(#2563EB,#B5F000,#F04070,#EAF1FE,#2563EB)"></div><div style="position:relative;height:86px;border-radius:43px;background:#fff;padding:0 44px;display:flex;align-items:center;font-size:34px;font-weight:700;white-space:nowrap">Speak a new language with confidence</div></div>
+    <div id="cta" style="position:absolute;left:50%;top:1270px;height:116px;padding:0 70px;border-radius:58px;background:#2563EB;color:#fff;font-size:44px;font-weight:800;display:flex;align-items:center;gap:16px;white-space:nowrap;box-shadow:0 26px 50px -14px rgba(37,99,235,.6)">Start speaking free →</div>
+    <div id="badges" class="row" style="position:absolute;left:0;right:0;top:1430px;justify-content:center;gap:24px"><img src="../../kit/brand/appstore-badge.svg" style="height:100px;display:block"><img src="../../kit/brand/googleplay-badge.svg" style="height:100px;display:block"></div>
+  </div>
+</div>
+<script src="../../kit/lucide.min.js"></script>
+<script src="../../kit/kit.js"></script>
+<script>
+const {p,E,set,show,$,$$,cl,lerp,bump,ic,mascot}=K;
+// ---- Chat (ConversationScreen) header, built from the spec ----
+const chatHeader=`<div class="row" style="justify-content:space-between"><div class="largeTitle">Chat</div><div class="row" style="gap:4px;height:32px;padding:0 14px;border-radius:999px;background:#EAF1FE;color:#2563EB;font-size:14px;font-weight:600">Family${K.ic('chevron-down',16,'#2563EB')}</div></div>
+  <div class="row" style="justify-content:space-between;margin-top:6px"><div class="row" style="gap:8px"><span class="sub ch-status">Tutor is speaking...</span>${K.streakBadge(6)}</div><div class="row" style="gap:12px;font-size:14px;font-weight:500"><span style="color:#2563EB">Save</span><span style="color:#DC2626">Reset chat</span></div></div>`;
+const memory=`<div class="scroll"><div class="row" style="gap:8px;margin-bottom:14px"><div style="width:36px;height:36px;border-radius:50%;background:#F3F1EC;display:flex;align-items:center;justify-content:center">${K.ic('arrow-left',20,'#12141A')}</div><div class="largeTitle" style="font-size:26px">Settings</div></div>
+  <div class="section" style="font-size:16px;margin:8px 0 8px">What your tutor knows about you</div>
+  <div class="card" style="padding:12px;display:flex;flex-direction:column;gap:16px">
+    <div class="sub">Your tutor uses this to shape lessons and chats. Change or remove anything.</div>
+    <div class="col" style="gap:8px"><div class="caption" style="text-transform:uppercase;letter-spacing:.6px">Why you're learning</div><div class="body">To talk with my grandma in Busan, in Korean.</div></div>
+    <div class="col" style="gap:8px"><div class="caption" style="text-transform:uppercase;letter-spacing:.6px">About you</div>
+      <div class="row" style="flex-wrap:wrap;gap:8px" id="facts">${['Grandma lives in Busan','Calls her every Sunday','Understands more than he speaks'].map(f=>`<div class="row fact" style="background:#F3F1EC;border-radius:999px;padding-left:12px;gap:2px"><span class="sub" style="color:#12141A">${f}</span><span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center">${K.ic('x',14,'#9A9EA8')}</span></div>`).join('')}</div>
+      <div class="row" style="gap:8px"><div class="sub" style="flex:1;border-radius:999px;border:1px solid #ECE8E1;padding:8px 12px;color:#9A9EA8">Add something about you</div><div style="width:36px;height:36px;border-radius:50%;background:#EAF1FE;display:flex;align-items:center;justify-content:center">${K.ic('plus',18,'#2563EB')}</div></div></div>
+    <div class="col" style="gap:8px" id="noticed"><div class="caption" style="text-transform:uppercase;letter-spacing:.6px">What your tutor noticed</div><div class="body">Mixes casual and polite endings when talking about elders.</div></div>
+    <div style="text-align:center;background:#EAF1FE;border-radius:999px;padding:10px 0;font-size:16px;font-weight:600;color:#2563EB">Chat with your tutor</div>
+  </div></div>`;
+$('#phoneWrap').innerHTML=K.device('dev',`
+ <div class="layer" id="sChat"><div class="scroll" style="padding-bottom:0">${chatHeader}</div>
+   <div style="position:absolute;left:16px;right:16px;top:150px;bottom:178px;overflow:hidden"><div id="feed" style="position:relative;padding-top:4px;display:flex;flex-direction:column;gap:16px">
+     <div id="k1">${K.charTurn({text:'안녕하세요! 오늘은 가족 이야기를 해요. 누구랑 제일 자주 이야기해요?',tr:'Annyeonghaseyo! Oneureun gajok iyagireul haeyo. Nugurang jeil jaju iyagihaeyo?',en:'Hi! Today let’s talk about family. Who do you talk to most often?',vocab:['가족 (gajok) — family','자주 (jaju) — often']})}</div>
+     <div id="l1">${K.learner({text:'저는 매주 일요일에 할머니께 전화해요.',tr:'Jeoneun maeju iryoire halmeonikke jeonhwahaeyo.',en:'I call my grandma every Sunday.',footer:'ok'})}</div>
+     <div id="k3">${K.charTurn({text:'와, 멋지네요! 할머니랑 무슨 이야기를 해요?',tr:'Wa, meotjineyo! Halmeonirang museun iyagireul haeyo?',en:'Wow, lovely! What do you talk about with your grandma?',vocab:['멋지다 (meotjida) — to be lovely']})}</div>
+     <div id="l2">${K.learner({text:'할머니한테 밥 먹었어? 물어봐.',tr:'Halmeonihante bap meogeosseo? mureobwa.',en:'I ask grandma "you ate?"',footer:'fix',fix:{errors:[{text:'밥 먹었어?',issue:'politeness',why:'With elders, use the honorific 진지 드셨어요 instead of 밥 먹었어.',sug:'진지 드셨어요? (jinji deusyeosseoyo?)'}],text:'할머니께 진지 드셨어요? 하고 여쭤봐요.',tr:'Halmeonikke jinji deusyeosseoyo? hago yeojjwobwayo.',en:'I ask Grandma, "Have you eaten?"'}})}</div>
+   </div></div>
+   ${K.micDock({hint:'Tutor is speaking...',menu:true,id:'dock'})}
+   ${K.helpModal({id:'help',result:{text:'저는 매주 일요일에 할머니께 전화해요.',tr:'Jeoneun maeju iryoire halmeonikke jeonhwahaeyo.',en:'I call my grandma every Sunday.'}})}
+ </div>
+ <div class="layer" id="sMem">${memory}</div>`);
+$('#muteIc').innerHTML=ic('mic-off',44,'#fff',1.8); $('#endIc').innerHTML=ic('phone-off',44,'#fff',1.8); $('#spkIc').innerHTML=ic('volume-2',44,'#fff',1.8);
+$('#word').innerHTML=[...'Polyspeech'].map(c=>`<span style="display:inline-block">${c}</span>`).join('');
+$('#title').innerHTML=['This','year,','I','answer'].map(w=>`<span class="w">${w}</span>`).join(' ')+'<br>'+['in','Korean.'].map(w=>`<span class="w" style="color:#2563EB">${w}</span>`).join(' ');
+K.icons(); K.preloadGlyphs('할머니진지드셨어요아이고우리손자');
+const dev=$('#dev'), cam=$('#cam'), L=id=>$('#'+id), dock=L('dock');
+
+const CAPS=[
+ {a:.8,b:3.6,html:'Grandma texts | in <b>Korean.</b>'},
+ {a:4.2,b:6.9,html:'I answer | in <b>English.</b>'},
+ {a:12.8,b:16.0,html:'A tutor that | <b>talks first.</b>'},
+ {a:16.8,b:20.4,html:'About my <b>real life.</b>'},
+ {a:21.2,b:24.6,html:'Don’t know | <b>how to say it?</b>'},
+ {a:25.2,b:28.6,html:'Say it in | <b>English first.</b>'},
+ {a:36.0,b:40.0,html:'It even teaches | <b>respect.</b>'},
+ {a:42.0,b:46.4,html:'It remembers | <b>what matters.</b>'},
+ {a:51.6,b:55.0,html:'Sunday night. | <b>In Korean.</b>'},
+];
+CAPS.forEach((c,i)=>{CAPS[i]=K.caption(L('caps'),{...c,style:{left:'50px',right:'50px',top:'230px',fontSize:'80px'}});});
+// camera keyframes [t, scale, focusX, focusY, stageY]; at each time, ease 0.8s from the previous framing
+const KF=[[0,1.75,187,406,1170],[13.2,2.15,187,300,1120],[21.4,2.05,187,330,1130],[28.4,2.0,187,430,1180],[31.0,1.95,187,430,1180],[35.6,2.0,187,450,1170],[40.8,2.05,187,330,1130]];
+function camAt(t){let i=0;while(i<KF.length-1&&KF[i+1][0]<=t)i++;const b=KF[i],a=KF[Math.max(0,i-1)];
+  const q=E.inOut(cl((t-b[0])/.8));return b.slice(1).map((v,k)=>lerp(a[k+1],v,q));}
+// feed scrolling: bring a turn to the top of the feed at time t
+const SCROLL=[[0,'k1',0],[28.7,'k1',150],[31.0,'k3',0],[35.95,'l2',150],[38.4,'l2',300]];
+function feedY(t){let i=0;while(i<SCROLL.length-1&&SCROLL[i+1][0]<=t)i++;const off=e=>L(e[1]).offsetTop-4+(e[2]||0);
+  const b=off(SCROLL[i]), a=off(SCROLL[Math.max(0,i-1)]);return -lerp(a,b,E.inOut(cl((t-SCROLL[i][0])/.6)));}
+
+function render(t){
+  set(L('g1'),{left:(-260+Math.sin(t*.4)*80)+'px',top:(-160+Math.cos(t*.3)*60)+'px',opacity:.75});
+  set(L('g2'),{left:(480+Math.cos(t*.35)*80)+'px',top:(1300+Math.sin(t*.45)*70)+'px',opacity:.55});
+  set(L('g3'),{left:(560+Math.sin(t*.5)*60)+'px',top:(260+Math.sin(t*.3)*90)+'px',opacity:.45});
+  // 1. texts 0–7
+  const tOn=t<7.6; show(L('texts'),tOn);
+  if(tOn){const q=p(t,0,.7,E.back), out=p(t,7.0,7.5,E.inExpo);
+    set(L('thread'),{transform:`translateY(${(1-q)*260-out*160}px) scale(${lerp(.86,1,q)*(1-out*.06)})`,opacity:cl(t/.2)*(1-out),filter:`blur(${out*14}px)`});
+    K.fadeIn(L('m1'),t,.6,.35); show(L('mdots'),t>3.5&&t<4.25); K.dotsAnim(L('texts'),t); show(L('m2'),t>=4.25); K.fadeIn(L('m2'),t,4.25,.3);}
+  // 2. title 7.2–12
+  const ti=L('title'); show(ti,t>7.1&&t<12.0);
+  if(t>7.1&&t<12.0){const out=p(t,11.3,11.7,E.inExpo); $$('.w',ti).forEach((w,i)=>{const q=p(t,7.5+i*.08,7.95+i*.08,E.outExpo);set(w,{transform:`translateY(${(1-q)*70-out*50}px)`,opacity:q*(1-out),filter:`blur(${(1-q)*12+out*12}px)`});});}
+  const bm=t>7.2&&t<12.3; show(L('burstMas'),bm);
+  if(bm){const m=p(t,7.2,7.65,E.back), f=p(t,11.6,12.2,E.inExpo), bob=Math.sin((t-7.6)*3.4)*10;
+    set(L('burstMas'),{transform:`translateY(${bob+f*500}px) scale(${m*(1-f*.7)}) rotate(${lerp(-25,0,m)+f*20}deg)`,opacity:1-f});}
+  const wl=p(t,11.65,12.0), wo=p(t,12.0,12.35); show(L('wipe'),t>11.6&&t<12.4); L('wipe').style.clipPath=`circle(${wl*1500}px at 540px 1100px)`; L('wipe').style.opacity=1-wo;
+  // 3–6. phone 12–48
+  const phOn=t>11.95&&t<48.4; show(L('persp'),phOn); show(L('scrim'),phOn); L('scrim').style.opacity=p(t,11.95,12.5)*(1-p(t,47.7,48.2));
+  if(phOn){
+    show(L('sChat'),t<41.6); show(L('sMem'),t>=40.9);
+    const [S,fx,fy,cy]=camAt(t), enter=p(t,12.0,12.8,E.outExpo), exit=p(t,47.6,48.3,E.inExpo);
+    set(cam,{transform:`translate(${540-S*(fx+12)}px,${cy-S*(fy+12)+(1-enter)*900-exit*1400}px) scale(${S})`});
+    set(dev,{transform:`rotateX(${(1-enter)*30+Math.sin(t*.5)*1.8}deg) rotateY(${(1-enter)*-16+Math.sin(t*.4)*2.4}deg) rotateZ(${(1-enter)*6}deg)`,filter:`blur(${(1-enter)*14+exit*16}px)`});
+    if(t<41.7){
+      K.fadeIn(L('k1'),t,12.6,.35);
+      const l1=L('l1'), l2=L('l2'); show(l1,t>28.55); K.fadeIn(l1,t,28.55); K.learnerPhase($('.lwrap',l1),t<28.9?'text':t<29.5?'pend':'tog');
+      show(L('k3'),t>31.2); K.fadeIn(L('k3'),t,31.2);
+      show(l2,t>32.7); K.fadeIn(l2,t,32.7); K.learnerPhase($('.lwrap',l2),t<34.4?'dots':t<34.6?'text':t<35.2?'pend':t<35.9?'tog':t<39.3?'card':'saved');
+      K.dotsAnim(L('sChat'),t);
+      set(L('feed'),{transform:`translateY(${feedY(t)}px)`});
+      const speaking=(t>12.6&&t<15.2)||(t>31.2&&t<32.4), rec=t>32.65&&t<34.3;
+      const st=$('#sChat .ch-status'), stx=speaking?'Tutor is speaking...':rec?'Listening...':'Live mode'; if(st.textContent!==stx) st.textContent=stx;
+      K.dockState(dock,t,rec?'rec':speaking?'disabled':'idle',rec?'Listening...':speaking?'Tutor is speaking...':(t>34.3&&t<35.2)||(t>28.9&&t<29.5)?'Evaluating your response...':'Your turn — tap to speak');
+      // help modal 21.8–28.4
+      const hm=L('help'), hq=p(t,21.8,22.1), hOut=p(t,28.3,28.55); show(hm,t>21.78&&t<28.6); set(hm,{opacity:hq*(1-hOut)});
+      const recH=t>22.85&&t<24.2, trans=t>=24.2&&t<24.8, res=t>=24.8;
+      set($('.hm-rec',hm),{borderColor:recH?'#DC2626':'#ECE8E1',background:recH?'#FDEDED':'#EAF1FE'});
+      const hb=$('.hm-btn',hm); set(hb,{background:recH?'#DC2626':'#2563EB'}); $('span:not(.ic)',hb).textContent=recH?'Stop':'Record';
+      $('.hm-hint',hm).textContent=recH?'Recording in English... speak naturally, then tap stop.':trans?'Transcribing your English...':'Record your response in English then tap stop.';
+      $('.hm-status',hm).textContent=trans?'Translating your reply...':t>24.2?'"I call my grandma every Sunday."':'Record your idea in English and I’ll help you say it naturally.';
+      const r=$('.hm-result',hm); show(r,res); if(res) K.fadeIn(r,t,24.8,.35);
+    }
+    if(t>40.9){ const m=L('sMem'); set(m,{transform:`translateX(${(1-p(t,40.9,41.5))*375}px)`});
+      $$('#facts .fact').forEach((f,i)=>{const q=p(t,42.3+i*.7,42.75+i*.7,E.back);set(f,{transform:`scale(${lerp(.6,1,q)})`,opacity:q});});
+      K.fadeIn(L('noticed'),t,44.6,.4); }
+    taps(t);
+  } else { show(L('tap'),false); show(L('tapr'),false); }
+  // 7. call 48–55.4
+  const cOn=t>48.0&&t<55.6; show(L('callL'),cOn);
+  if(cOn){const q=p(t,48.1,48.8,E.back), out=p(t,55.0,55.5,E.inExpo);
+    set(L('call'),{transform:`translateY(${(1-q)*300-out*200}px) scale(${lerp(.85,1,q)})`,opacity:cl((t-48.1)/.2)*(1-out),filter:`blur(${out*14}px)`});
+    L('callSt').textContent=t<49.6?'calling…':'00:0'+Math.min(9,Math.floor(t-49.6));
+    const c1=p(t,49.9,50.3,E.back); set(L('c1'),{transform:`translateY(${(1-c1)*60}px) scale(${lerp(.85,1,c1)})`,opacity:cl((t-49.9)/.1)*(1-out)});
+    const c2=p(t,51.4,51.8,E.back); set(L('c2'),{transform:`translateY(${(1-c2)*60}px) scale(${lerp(.85,1,c2)})`,opacity:cl((t-51.4)/.1)*(1-out)});}
+  CAPS.forEach(c=>K.captionRender(c,t));
+  // 8. end card 55.3–59.5
+  const eOn=t>55.3; show(L('endL'),eOn);
+  if(eOn){
+    const d=p(t,55.35,55.75,E.inExpo), sq=t>55.75?Math.sin(Math.PI*cl((t-55.75)/.35))*Math.exp(-(t-55.75)*3):0, bob=t>56.2?Math.sin((t-56.2)*3.5)*10:0;
+    set(L('endMas'),{transform:`translateY(${(1-d)*-900+bob}px) scale(${1+sq*.18},${1-sq*.22})`,transformOrigin:'50% 100%',opacity:cl((t-55.35)/.1)});
+    $$('#word span').forEach((l,i)=>{const q=p(t,55.8+i*.035,56.25+i*.035,E.outExpo);set(l,{transform:`translateY(${(1-q)*70}px)`,opacity:q,filter:`blur(${(1-q)*12}px)`});});
+    const pq=p(t,56.2,56.6,E.back); set(L('pillw'),{transform:`translateX(-50%) scale(${lerp(.7,1,pq)})`,opacity:cl((t-56.2)/.12)}); set(L('pillbg'),{transform:`rotate(${t*110}deg)`});
+    const cq=p(t,56.45,56.85,E.back); set(L('cta'),{transform:`translateX(-50%) translateY(${(1-cq)*60}px) scale(${1+bump(t,57.8,.4)*.05})`,opacity:cl((t-56.45)/.12)});
+    K.fadeIn(L('badges'),t,56.8,.4);
+  }
+}
+function taps(t){
+  const T=[[21.6,'#dock .q'],[22.8,'#help .hm-btn'],[24.15,'#help .hm-btn'],[28.2,'#help .hm-result .btnP'],[32.6,'#dock .mic'],[34.25,'#dock .mic'],[35.8,'#l2 .tog'],[39.2,'#l2 .ff-save'],[40.7,'#dock .menu']];
+  let cur=null; for(const x of T){ if(t>x[0]-.55&&t<x[0]+.8) cur=x; }
+  if(!cur){show(L('tap'),false);show(L('tapr'),false);return;}
+  K.tapAt(L('tap'),L('tapr'),$(cur[1]),t,cur[0],{arrive:.5,hold:.35});
+}
+window.render=render; render(0);
+</script>
+</body></html>

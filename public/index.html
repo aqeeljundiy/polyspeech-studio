@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Polyspeech Studio</title>
+<link rel="icon" href="/mascot.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head><body>
+<aside class="side">
+  <a class="brand" href="#/"><img src="/mascot.png" alt=""><span><b>Polyspeech</b> Studio</span></a>
+  <nav class="nav">
+    <a href="#/" data-nav="board"><i data-lucide="layout-dashboard"></i>Board</a>
+    <a href="#/knowledge" data-nav="knowledge"><i data-lucide="book-open"></i>Knowledge</a>
+  </nav>
+  <div class="claude" id="claudeBox"></div>
+  <button class="btn primary wide" id="newBtn" type="button"><i data-lucide="plus"></i>New ad</button>
+</aside>
+<main id="app"></main>
+<div id="toast" class="toast" hidden></div>
+
+<dialog id="newDlg" class="dlg">
+  <form method="dialog" id="newForm">
+    <div class="dlg-h"><h2>New ad</h2><button type="button" class="icon-btn" data-close aria-label="Close"><i data-lucide="x"></i></button></div>
+    <label>Title<input id="nTitle" required placeholder="e.g. Between meetings"></label>
+    <div class="two"><label>Persona<input id="nPersona" placeholder="e.g. Busy professional"></label>
+      <label>Language<select id="nLang"><option>Mandarin</option><option>Korean</option><option>Japanese</option><option>Spanish</option><option>French</option><option>All five</option></select></label></div>
+    <div class="two"><label>Format<select id="nFormat"><option value="9:16">Reel · 9:16</option><option value="16:9">YouTube · 16:9</option></select></label>
+      <label>Start from<select id="nTpl"><option value="">Blank</option></select></label></div>
+    <label>Brief<textarea id="nBrief" rows="5" placeholder="Who is it for, the angle, the features to show, the feeling at the end."></textarea></label>
+    <p class="err" id="newErr" hidden></p>
+    <div class="dlg-f"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Create brief</button></div>
+  </form>
+</dialog>
+
+<dialog id="revDlg" class="dlg">
+  <form method="dialog" id="revForm">
+    <div class="dlg-h"><h2>Send back to revision</h2><button type="button" class="icon-btn" data-close aria-label="Close"><i data-lucide="x"></i></button></div>
+    <p class="muted" id="revSum"></p>
+    <div class="revlist" id="revList"></div>
+    <label>Overall notes (optional)<textarea id="revNotes" rows="3" placeholder="Anything that applies to the whole video"></textarea></label>
+    <div class="dlg-f"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit" id="revGo"><i data-lucide="sparkles"></i>Send to Claude</button></div>
+  </form>
+</dialog>
+<script src="/lucide.js"></script>
+<script src="/app.js"></script>
+</body></html>
