@@ -19,7 +19,7 @@
 <main id="app"></main>
 <div id="toast" class="toast" hidden></div>
 
-<dialog id="newDlg" class="dlg">
+<dialog id="newDlg" class="dlg lg">
   <form method="dialog" id="newForm">
     <div class="dlg-h"><h2>New ad</h2><button type="button" class="icon-btn" data-close aria-label="Close"><i data-lucide="x"></i></button></div>
     <label>Title<input id="nTitle" required placeholder="e.g. Between meetings"></label>
@@ -29,7 +29,9 @@
       <label>Start from<select id="nTpl"><option value="">Let Claude pick</option></select></label></div>
     <p class="small" id="nTplAbout" style="margin:-6px 0 0"></p>
     <div id="nVo"></div>
-    <label>Brief<textarea id="nBrief" rows="5" placeholder="Who is it for, the angle, the features to show, the feeling at the end."></textarea></label>
+    <label>Brief<textarea id="nBrief" rows="4" placeholder="Who is it for, the angle, the features to show, the feeling at the end."></textarea></label>
+    <div class="field">Source materials<small>Optional. Add files or whole folders; you can add more later in the Brief tab.</small></div>
+    <div id="nSrc"></div>
     <p class="err" id="newErr" hidden></p>
     <div class="dlg-f"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Create brief</button></div>
   </form>

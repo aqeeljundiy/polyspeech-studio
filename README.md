@@ -19,6 +19,7 @@ Keys are saved in `data/settings.json` on your PC and are never pushed.
 ## Flow
 1. **Brief:** press **New ad**, then **Make v1**.
    - **Start from:** one of the three finished ads (The trip, Grandma’s language, Nobody’s listening), which Claude rewrites for your brief. They ship in `engine/templates/` as source files, not videos. **Let Claude pick** starts from the closest one.
+   - **Source materials:** two drop zones that take files or whole folders. **References** are looks and ideas Claude learns from. **Footage and assets** are clips, images and logos Claude puts in the ad. They're saved in `projects/<ad>/_sources/`, listed in every request, and you can add or remove them later in the Brief tab.
    - **Voiceover:** off by default. Turn it on and pick an ElevenLabs voice: Claude writes the lines, `engine/tts.mjs` makes them, and the scenes are timed to the real line lengths. You can change it later in the Brief tab.
 2. **Rendering:** Claude edits, checks stills and renders. The card shows live progress.
 3. **Needs review:** leave comments. There are five types:

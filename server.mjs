@@ -51,6 +51,21 @@ async function voices() {
   voiceCache = { key, at: Date.now(), list }; return list;
 }
 
+// ---------- source materials: projects/<slug>/_sources/{references,footage}/<folders…> ----------
+// references: looks and ideas to learn from. footage: files Claude should put in the ad.
+const GROUPS = ['references', 'footage'];
+const srcDir = (p, g) => path.join(dirOf(p), '_sources', g);
+const safeRel = r => String(r || '').split(/[\\/]+/).filter(x => x && x !== '.' && x !== '..').map(x => x.replace(/[<>:"|?*\x00-\x1f]/g, '_').slice(0, 120)).join('/');
+function sources(p) {
+  const out = {};
+  for (const g of GROUPS) {
+    const base = srcDir(p, g), list = [];
+    const walk = d => { if (!fs.existsSync(d)) return; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else list.push({ path: path.relative(base, f).replace(/\\/g, '/'), size: fs.statSync(f).size, type: MIME[path.extname(f).toLowerCase()] || 'application/octet-stream' }); } };
+    walk(base); out[g] = list.sort((a, b) => a.path.localeCompare(b.path));
+  }
+  return out;
+}
+
 // ---------- versions on disk ----------
 function versions(p) {
   const d = dirOf(p); if (!fs.existsSync(d)) return [];
@@ -97,6 +112,11 @@ function writeRequest(p, type, notes) {
     `- After rendering, copy clip.html and clip.json into ${rel(path.join(dirOf(p), `v${next}-src`))}/`, '',
     '## Brief', '', p.brief || '(none)', '',
     '## Voiceover', '', p.vo?.on ? `On. Voice: ${p.vo.voiceName || p.vo.voice} (id ${p.vo.voice}). Write the lines, make them with node engine/tts.mjs (see knowledge/style.md, Voiceover) and add them as cues. Keep every existing line that a comment doesn’t ask to change: tts.mjs reuses unchanged lines without new cost.` : 'Off. Music and UI sounds only; remove any voice cues if a template had them.', '',
+    ...(() => { const sr = sources(p), list = g => sr[g].map(f => `- ${rel(path.join(srcDir(p, g), f.path))} (${f.type}, ${(f.size / 1e6).toFixed(1)} MB)`).join('\n');
+      return [
+        sr.references.length ? `## References (${sr.references.length})\n\nLooks, ideas and examples to learn from. Open each one with Read (images, PDFs) or look at stills from videos. Match the idea in the Polyspeech style; don't copy them into the ad.\n\n${list('references')}\n` : '',
+        sr.footage.length ? `## Footage and assets (${sr.footage.length})\n\nFiles to use in the ad itself. Copy the ones you use into the working folder's assets/ and follow knowledge/style.md (Footage and assets). If one doesn't fit the story, say why in your summary.\n\n${list('footage')}\n` : '',
+      ]; })(),
     notes ? `## Overall notes for this round\n\n${notes}\n` : '',
     open.length ? `## Open review comments (${open.length})\n\n${open.map(c => describe(c, speed)).join('\n')}\n` : '## Open review comments\n\n(none)\n',
   ].join('\n');
@@ -135,7 +155,7 @@ function finish(p, note) {
 // ---------- http helpers ----------
 const send = (res, code, body, type = 'application/json', extra = {}) => { res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', ...extra }); res.end(type === 'application/json' ? JSON.stringify(body) : body); };
 const readJson = req => new Promise((ok, bad) => { let b = ''; req.on('data', d => { b += d; if (b.length > 80e6) req.destroy(); }); req.on('end', () => { try { ok(b ? JSON.parse(b) : {}); } catch (e) { bad(e); } }); });
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.md': 'text/markdown; charset=utf-8', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.pdf': 'application/pdf', '.mov': 'video/quicktime', '.webm': 'video/webm', '.woff2': 'font/woff2' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.md': 'text/markdown; charset=utf-8', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.pdf': 'application/pdf', '.mov': 'video/quicktime', '.webm': 'video/webm', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.txt': 'text/plain; charset=utf-8', '.ttf': 'font/ttf', '.otf': 'font/otf' };
 function serveFile(req, res, file, download) {
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return send(res, 404, { error: 'Not found' });
   const size = fs.statSync(file).size, type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
@@ -170,7 +190,7 @@ const server = http.createServer(async (req, res) => {
     }
     if ((mm = p.match(/^\/api\/projects\/(\w+)$/))) {
       const pr = find(mm[1]); if (!pr) return send(res, 404, { error: 'Ad not found' });
-      if (m === 'GET') return send(res, 200, { ...summary(pr), versions: versions(pr), comments: db.comments.filter(c => c.project === pr.id), speed: clipCfg(pr).speed || 1 });
+      if (m === 'GET') return send(res, 200, { ...summary(pr), versions: versions(pr), comments: db.comments.filter(c => c.project === pr.id), speed: clipCfg(pr).speed || 1, sources: sources(pr) });
       if (m === 'PATCH') {
         const b = await readJson(req);
         // steps only move by their buttons: Rendering and Revision are set by Claude's jobs, never by hand
@@ -183,6 +203,21 @@ const server = http.createServer(async (req, res) => {
         save(); return send(res, 200, summary(pr));
       }
       if (m === 'DELETE') { if (jobActive(pr)) return send(res, 409, { error: 'Claude is working on this ad. Cancel the job first.' }); fs.rmSync(dirOf(pr), { recursive: true, force: true }); fs.rmSync(workOf(pr), { recursive: true, force: true }); db.projects = db.projects.filter(x => x !== pr); db.comments = db.comments.filter(c => c.project !== pr.id); save(); return send(res, 200, { ok: true }); }
+    }
+    // source materials: one file per request, streamed (footage can be large); ?group=references|footage&path=folder/file.ext
+    if ((mm = p.match(/^\/api\/projects\/(\w+)\/sources$/)) && (m === 'POST' || m === 'DELETE')) {
+      const pr = find(mm[1]); if (!pr) return send(res, 404, { error: 'Ad not found' });
+      const g = url.searchParams.get('group'), r = safeRel(url.searchParams.get('path'));
+      if (!GROUPS.includes(g) || !r) return send(res, 400, { error: 'Pick references or footage, and a file name.' });
+      const file = path.join(srcDir(pr, g), r);
+      if (m === 'DELETE') { fs.rmSync(file, { force: true }); log(pr, `Removed ${r} from ${g}`); save(); return send(res, 200, sources(pr)); }
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      await new Promise((ok, bad) => { const w = fs.createWriteStream(file); req.pipe(w); w.on('finish', ok); w.on('error', bad); req.on('error', bad); });
+      pr.updated = now(); save(); return send(res, 201, { path: r, size: fs.statSync(file).size });
+    }
+    if ((mm = p.match(/^\/api\/projects\/(\w+)\/sources\/done$/)) && m === 'POST') {
+      const pr = find(mm[1]); if (!pr) return send(res, 404, { error: 'Ad not found' });
+      const b = await readJson(req); if (b.count) { log(pr, `Added ${b.count} file${b.count > 1 ? 's' : ''} to ${b.group}`); save(); } return send(res, 200, sources(pr));
     }
     // comments: frame, range, pin, area or whole video; optional drawing; threaded replies
     if ((mm = p.match(/^\/api\/projects\/(\w+)\/comments$/)) && m === 'POST') {

@@ -37,3 +37,10 @@ Reviewers comment on the rendered video, which runs at `speed` (usually 1.3). Th
 - Captions show the same words as the line, or a shorter version of them. They change only after the line ends.
 - Cue each line as { "src": "vo/<id>.mp3", "t": <build seconds>, "ss": 0, "to": <secs>, "v": 1 }. The renderer cleans up the voice and lowers the music under it.
 - Keep a line's id and text when a comment doesn't ask to change it. tts.mjs reuses it at no cost.
+
+## Footage and assets (only when the request lists them)
+- Copy each file you use into the working folder's assets/ and point clip.html at it with a relative path (assets/name.png). Never link into projects/.
+- Images and logos: place them like any other element. Keep their aspect ratio, never stretch them, and crop with object-fit: cover inside a rounded frame when they sit next to app UI.
+- Video clips: render(t) has to show the exact frame for t, so turn each clip into frames first: node -e "require('child_process').execFileSync(require('./engine/node_modules/ffmpeg-static'), ['-i','<clip>','-vf','fps=30,scale=1080:-2','-q:v','3','<working folder>/assets/<name>/f%04d.jpg'])". Then show frame floor(seconds into the clip × 30) + 1 in an <img>. render(t) may be async: await img.decode() before returning. Use only the seconds you need.
+- Sound in footage is not used. Music and UI sounds stay as they are, and a voiceover still comes from engine/tts.mjs.
+- Fonts in the files: copy them into assets/ and load them with @font-face only when the brief asks for that look. Plus Jakarta Sans stays the default.

@@ -151,7 +151,7 @@ async function ad(id, keep) {
   app.innerHTML = `<div class="crumbs"><a href="#/">${ic('arrow-left', 16)} Board</a><span>/</span><span>${esc(cur.title)}</span></div>
   <div class="p-head"><h1>${esc(cur.title)}</h1>
     <span class="status" ${statusPill(cur.status)}>${COLS.find(c => c.k === cur.status)?.label || cur.status}</span>
-    <span class="chip">${esc(cur.persona || '')}</span><span class="chip">${esc(cur.lang || '')}</span><span class="chip">${cur.format}</span>${cur.vo?.on ? `<span class="chip">${ic('mic', 12)}${esc(cur.vo.voiceName || 'Voiceover')}</span>` : ''}<span class="sp"></span>
+    ${cur.persona ? `<span class="chip">${esc(cur.persona)}</span>` : ''}${cur.lang ? `<span class="chip">${esc(cur.lang)}</span>` : ''}<span class="chip">${cur.format}</span>${cur.vo?.on ? `<span class="chip">${ic('mic', 12)}${esc(cur.vo.voiceName || 'Voiceover')}</span>` : ''}<span class="sp"></span>
     <button class="icon-btn" id="moreBtn" aria-label="More actions">${ic('more-horizontal')}</button>
     ${vs.length ? `<button class="btn ghost" id="revBtn" ${jobActive(cur.job) ? 'disabled' : ''}>${ic('rotate-ccw')}Send back to revision${open ? ` · ${open}` : ''}</button>
       ${cur.status === 'ready' ? `<button class="btn primary" id="upBtn">${ic('upload')}Mark uploaded</button>` : cur.status === 'uploaded' ? '' : `<button class="btn lime" id="okBtn">${ic('check')}Approve</button>`}`
@@ -394,7 +394,9 @@ function renderTab() {
     p.innerHTML = `<label class="field">Persona<input id="bPersona" value="${esc(cur.persona)}"></label><label class="field">Language<input id="bLang" value="${esc(cur.lang)}"></label>
       <div id="bVo"></div>
       <label class="field">Brief<small>Claude reads this every round, with the knowledge pages.</small><textarea id="bBrief" rows="10">${esc(cur.brief)}</textarea></label>
-      <div class="row"><span class="sp"></span><button class="btn primary sm" id="bSave">Save brief</button></div>`;
+      <div class="row"><span class="sp"></span><button class="btn primary sm" id="bSave">Save brief</button></div>
+      <div class="field" style="margin-top:6px">Source materials<small>Claude reads these every round. Files save as soon as you add them.</small></div><div id="bSrc"></div>`;
+    sourcesBox($('#bSrc'), { pid: cur.id, existing: cur.sources || { references: [], footage: [] }, stack: true, onChange: sr => { if (sr) cur.sources = sr; } });
     let bVo = () => cur.vo || { on: false }; voControl($('#bVo'), cur.vo).then(g => { bVo = g; });
     $('#bSave').onclick = async () => { const vo = bVo(), voChanged = !!vo.on !== !!cur.vo?.on || (vo.on && vo.voice !== cur.vo?.voice);
       await api('/api/projects/' + cur.id, { method: 'PATCH', body: { brief: $('#bBrief').value, persona: $('#bPersona').value, lang: $('#bLang').value, ...(voChanged ? { vo } : {}) } }); toast('Brief saved'); cur = await api('/api/projects/' + cur.id); };
@@ -575,9 +577,131 @@ async function settingsPage() {
   $('#getSounds') && ($('#getSounds').onclick = () => downloadSounds($('#getSounds')).then(settingsPage));
 }
 
+// ---------- source materials: references (to learn from) and footage (to use in the ad) ----------
+const SRC = {
+  references: ['images', 'References', 'Looks and ideas Claude learns from, without copying them.'],
+  footage: ['clapperboard', 'Footage and assets', 'Clips, images and logos Claude puts in the ad itself.'],
+};
+const fsize = n => n > 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
+const fileIcon = t => /^image/.test(t) ? 'image' : /^video/.test(t) ? 'film' : /^audio/.test(t) ? 'music' : /pdf/.test(t) ? 'file-text' : 'file';
+const junk = n => /(^|\/)(\.|Thumbs\.db$|desktop\.ini$)/i.test(n);
+// folders dropped on a zone: walk them and keep each file's path inside the folder
+async function droppedFiles(dt) {
+  const out = [], entries = [...dt.items].map(i => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.length) return [...dt.files].map(f => ({ file: f, rel: f.name }));
+  const walk = async (e, pre) => {
+    if (e.isFile) { const f = await new Promise((ok, bad) => e.file(ok, bad)); out.push({ file: f, rel: pre + f.name }); return; }
+    const rd = e.createReader(); let batch;
+    do { batch = await new Promise((ok, bad) => rd.readEntries(ok, bad)); for (const c of batch) await walk(c, pre + e.name + '/'); } while (batch.length);
+  };
+  for (const e of entries) await walk(e, '');
+  return out;
+}
+async function uploadSources(pid, group, items, onStep) {
+  let n = 0;
+  for (const it of items) {
+    onStep?.(++n, items.length, it.rel);
+    const r = await fetch(`/api/projects/${pid}/sources?group=${group}&path=${encodeURIComponent(it.rel)}`, { method: 'POST', body: it.file });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Couldn’t upload ${it.rel}`);
+  }
+  return api(`/api/projects/${pid}/sources/done`, { method: 'POST', body: { group, count: items.length } });
+}
+// Two drop zones. Without pid the files wait in memory (new ad form); with pid they upload at once.
+// Returns { pending } so the new ad form can upload after the ad exists.
+function sourcesBox(el, { pid = null, existing = { references: [], footage: [] }, onChange, stack = false } = {}) {
+  const pending = { references: [], footage: [] }; let have = existing, busy = '';
+  const draw = () => {
+    el.className = 'srcs' + (stack ? ' one' : '');
+    el.innerHTML = Object.entries(SRC).map(([g, [icon, title, sub]]) => {
+      const rows = [...have[g].map(f => ({ ...f, saved: true })), ...pending[g].map((p, i) => ({ path: p.rel, size: p.file.size, type: p.file.type, i }))];
+      return `<div class="src" data-g="${g}"><div class="src-h">${ic(icon, 17)}<div><b>${title}</b><small>${sub}</small></div></div>
+        <div class="drop" tabindex="0" role="button" aria-label="Add ${title.toLowerCase()}">${ic('upload-cloud', 20)}<span>Drop files or folders here</span>
+          <span class="drop-b"><button type="button" class="linkbtn" data-pick="files">Choose files</button> · <button type="button" class="linkbtn" data-pick="dir">Choose a folder</button></span>
+          <input type="file" multiple hidden data-in="files"><input type="file" multiple webkitdirectory hidden data-in="dir"></div>
+        ${busy && busy.startsWith(g) ? `<div class="src-busy"><span class="spin"></span>${esc(busy.slice(g.length + 1))}</div>` : ''}
+        ${rows.length ? `<ul class="flist">${rows.slice(0, 60).map(r => `<li>${ic(fileIcon(r.type), 14)}<span class="fn" title="${esc(r.path)}">${esc(r.path)}</span><span class="fs">${fsize(r.size)}</span>
+          <button type="button" class="x" aria-label="Remove ${esc(r.path)}" ${r.saved ? `data-del="${esc(r.path)}"` : `data-rm="${r.i}"`}>${ic('x', 13)}</button></li>`).join('')}
+          ${rows.length > 60 ? `<li class="more-n">and ${rows.length - 60} more</li>` : ''}</ul>` : ''}</div>`;
+    }).join('');
+    icons();
+    $$('.src', el).forEach(box => {
+      const g = box.dataset.g, drop = $('.drop', box);
+      const add = async items => {
+        items = items.filter(it => !junk(it.rel) && it.file.size > 0); if (!items.length) return;
+        const big = items.filter(it => it.file.size > 2e9); if (big.length) { toast(`${big[0].rel} is over 2 GB`); items = items.filter(it => it.file.size <= 2e9); }
+        if (!pid) { pending[g].push(...items); draw(); onChange?.(); return; }
+        try { have = await uploadSources(pid, g, items, (n, t, rel) => { busy = `${g}:Uploading ${n} of ${t} · ${rel}`; draw(); }); toast(`${items.length} file${items.length > 1 ? 's' : ''} added`); }
+        catch (e) { toast(e.message); } finally { busy = ''; draw(); onChange?.(have); }
+      };
+      $$('[data-pick]', box).forEach(b => b.onclick = e => { e.stopPropagation(); $(`[data-in="${b.dataset.pick}"]`, box).click(); });
+      drop.onclick = e => { if (!e.target.closest('[data-pick]')) $('[data-in="files"]', box).click(); };
+      drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('[data-in="files"]', box).click(); } };
+      $$('[data-in]', box).forEach(inp => inp.onchange = () => { add([...inp.files].map(f => ({ file: f, rel: f.webkitRelativePath || f.name }))); inp.value = ''; });
+      drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+      drop.ondragleave = () => drop.classList.remove('over');
+      drop.ondrop = async e => { e.preventDefault(); drop.classList.remove('over'); add(await droppedFiles(e.dataTransfer)); };
+      $$('[data-rm]', box).forEach(b => b.onclick = () => { pending[g].splice(+b.dataset.rm, 1); draw(); onChange?.(); });
+      $$('[data-del]', box).forEach(b => b.onclick = async () => {
+        try { have = await api(`/api/projects/${pid}/sources?group=${g}&path=${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' }); draw(); onChange?.(have); } catch (e) { toast(e.message); }
+      });
+    });
+  };
+  draw();
+  return { pending, count: () => pending.references.length + pending.footage.length };
+}
+
+// ---------- dropdowns: the native <select> keeps the value; the studio draws the button and list ----------
+const selProto = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+function enhanceSelect(sel) {
+  if (sel.dataset.dd) return; sel.dataset.dd = '1';
+  const btn = document.createElement('button'); btn.type = 'button';
+  btn.className = 'dd' + (sel.classList.contains('mini') ? ' dark' : ''); btn.setAttribute('aria-haspopup', 'listbox'); btn.setAttribute('aria-expanded', 'false');
+  if (sel.getAttribute('aria-label')) btn.setAttribute('aria-label', sel.getAttribute('aria-label'));
+  btn.innerHTML = `<span class="dd-v"></span>${ic('chevron-down', 16)}`;
+  sel.classList.add('dd-native'); sel.tabIndex = -1; sel.after(btn); icons();
+  const sync = () => { const o = sel.selectedOptions[0]; $('.dd-v', btn).textContent = o ? o.textContent : ''; btn.disabled = sel.disabled; };
+  // keep the button in step with code that sets .value, swaps options or resets the form
+  Object.defineProperty(sel, 'value', { configurable: true, get() { return selProto.get.call(this); }, set(v) { selProto.set.call(this, v); sync(); } });
+  new MutationObserver(sync).observe(sel, { childList: true, subtree: true, attributes: true, characterData: true });
+  sel.addEventListener('change', sync); sel.form?.addEventListener('reset', () => setTimeout(sync));
+  sel.addEventListener('focus', () => btn.focus());
+  btn.onclick = () => ddOpen(sel, btn);
+  btn.onkeydown = e => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); ddOpen(sel, btn); } };
+  sync();
+}
+function ddOpen(sel, btn) {
+  if ($('.dd-list')) { $('.dd-list').remove(); }
+  const host = btn.closest('dialog') || document.body, opts = [...sel.options];
+  const list = document.createElement('div'); list.className = 'menu dd-list'; list.setAttribute('role', 'listbox');
+  list.innerHTML = opts.map((o, i) => `<button type="button" role="option" data-i="${i}" aria-selected="${o.selected}" ${o.disabled ? 'disabled' : ''}><span>${esc(o.textContent)}</span>${o.selected ? ic('check', 15) : ''}</button>`).join('');
+  host.append(list); icons(); btn.setAttribute('aria-expanded', 'true');
+  const r = btn.getBoundingClientRect(); list.style.minWidth = r.width + 'px';
+  const lr = list.getBoundingClientRect(), below = innerHeight - r.bottom - 8;
+  list.style.left = Math.max(8, Math.min(r.left, innerWidth - lr.width - 8)) + 'px';
+  if (lr.height > below && r.top > below) { list.style.top = Math.max(8, r.top - lr.height - 6) + 'px'; list.style.transformOrigin = 'bottom left'; } else list.style.top = r.bottom + 6 + 'px';
+  const items = $$('button', list), cur = Math.max(0, sel.selectedIndex);
+  items[cur]?.focus(); items[cur]?.scrollIntoView({ block: 'nearest' });
+  const close = refocus => { list.classList.add('out'); setTimeout(() => list.remove(), 140); btn.setAttribute('aria-expanded', 'false'); removeEventListener('pointerdown', away, true); if (refocus) btn.focus(); };
+  const away = e => { if (!list.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close(); };
+  setTimeout(() => addEventListener('pointerdown', away, true));
+  const pick = i => { if (sel.selectedIndex !== i) { sel.selectedIndex = i; sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); } $('.dd-v', btn).textContent = sel.options[i].textContent; close(true); };
+  items.forEach(b => b.onclick = () => pick(+b.dataset.i));
+  list.onkeydown = e => {
+    const at = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[Math.min(items.length - 1, at + 1)]?.focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[Math.max(0, at - 1)]?.focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
+    else if (e.key === 'Tab') close();
+    else if (e.key.length === 1) { const k = e.key.toLowerCase(); const j = items.findIndex((b, x) => x > at && b.textContent.trim().toLowerCase().startsWith(k)); const f = j >= 0 ? j : items.findIndex(b => b.textContent.trim().toLowerCase().startsWith(k)); if (f >= 0) items[f].focus(); }
+  };
+}
+new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.tagName === 'SELECT') enhanceSelect(n); else n.querySelectorAll?.('select').forEach(enhanceSelect); } })
+  .observe(document.body, { childList: true, subtree: true });
+$$('select').forEach(enhanceSelect);
+
 // ---------- new ad ----------
 $$('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
-let voGet = () => ({ on: false }), tpls = [];
+let voGet = () => ({ on: false }), tpls = [], newSrc = null;
 const tplAbout = () => { const t = tpls.find(x => x.slug === $('#nTpl').value); $('#nTplAbout').textContent = t ? `${t.about}. Claude rewrites it for your brief.` : 'Claude builds it from your brief, starting from the closest existing ad.'; };
 $('#newBtn').onclick = async () => {
   $('#newForm').reset(); $('#newErr').hidden = true;
@@ -585,11 +709,19 @@ $('#newBtn').onclick = async () => {
   $('#nTpl').innerHTML = '<option value="">Let Claude pick</option>' + tpls.map(t => `<option value="${t.slug}">${esc(t.label)} · ${esc(t.lang)} · ${t.format} · ${t.secs}s</option>`).join('');
   tplAbout(); $('#nTpl').onchange = tplAbout;
   voGet = await voControl($('#nVo'));
+  newSrc = sourcesBox($('#nSrc'));
   $('#newDlg').showModal();
 };
 $('#newForm').onsubmit = async e => {
   e.preventDefault();
   try { const p = await api('/api/projects', { method: 'POST', body: { title: $('#nTitle').value.trim(), persona: $('#nPersona').value.trim(), lang: $('#nLang').value, format: $('#nFormat').value, template: $('#nTpl').value, brief: $('#nBrief').value, vo: voGet() } });
+    const go = $('#newForm [type=submit]');
+    if (newSrc?.count()) {
+      go.disabled = true;
+      try { for (const g of ['references', 'footage']) if (newSrc.pending[g].length) await uploadSources(p.id, g, newSrc.pending[g], (n, t) => { go.innerHTML = `<span class="spin"></span>Uploading ${g} ${n} of ${t}`; }); }
+      catch (e2) { toast(e2.message + '. Add the rest in the Brief tab.'); }
+      finally { go.disabled = false; go.textContent = 'Create brief'; }
+    }
     $('#newDlg').close(); toast('Brief created'); location.hash = '#/a/' + p.id; } catch (err) { $('#newErr').textContent = err.message; $('#newErr').hidden = false; }
 };
 
