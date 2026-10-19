@@ -30,6 +30,7 @@
     <p class="small" id="nTplAbout" style="margin:-6px 0 0"></p>
     <div id="nVo"></div>
     <label>Brief<textarea id="nBrief" rows="4" placeholder="Who is it for, the angle, the features to show, the feeling at the end."></textarea></label>
+    <div class="field">Learn from video examples<small>Optional. Approved cards from Knowledge.</small><div id="nEx"></div></div>
     <div class="field">Source materials<small>Optional. Add files or whole folders; you can add more later in the Brief tab.</small></div>
     <div id="nSrc"></div>
     <p class="err" id="newErr" hidden></p>
@@ -45,6 +46,8 @@
     <div class="dlg-f"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" value="ok" class="btn primary" id="askOk">OK</button></div>
   </form>
 </dialog>
+
+<dialog id="exDlg" class="dlg xl"><div id="exBody" class="dlg-in"></div></dialog>
 
 <dialog id="revDlg" class="dlg">
   <form method="dialog" id="revForm">

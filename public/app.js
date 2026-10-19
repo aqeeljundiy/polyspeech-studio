@@ -393,13 +393,15 @@ function renderTab() {
   if (tab === 'Brief') {
     p.innerHTML = `<label class="field">Persona<input id="bPersona" value="${esc(cur.persona)}"></label><label class="field">Language<input id="bLang" value="${esc(cur.lang)}"></label>
       <div id="bVo"></div>
+      <div class="field">Learn from video examples<small>Approved cards from Knowledge that Claude follows for this ad.</small><div id="bEx"></div></div>
       <label class="field">Brief<small>Claude reads this every round, with the knowledge pages.</small><textarea id="bBrief" rows="10">${esc(cur.brief)}</textarea></label>
       <div class="row"><span class="sp"></span><button class="btn primary sm" id="bSave">Save brief</button></div>
       <div class="field" style="margin-top:6px">Source materials<small>Claude reads these every round. Files save as soon as you add them.</small></div><div id="bSrc"></div>`;
     sourcesBox($('#bSrc'), { pid: cur.id, existing: cur.sources || { references: [], footage: [] }, stack: true, onChange: sr => { if (sr) cur.sources = sr; } });
     let bVo = () => cur.vo || { on: false }; voControl($('#bVo'), cur.vo).then(g => { bVo = g; });
+    let bEx = () => cur.examples || []; examplePicker($('#bEx'), cur.examples || []).then(g => { bEx = g; });
     $('#bSave').onclick = async () => { const vo = bVo(), voChanged = !!vo.on !== !!cur.vo?.on || (vo.on && vo.voice !== cur.vo?.voice);
-      await api('/api/projects/' + cur.id, { method: 'PATCH', body: { brief: $('#bBrief').value, persona: $('#bPersona').value, lang: $('#bLang').value, ...(voChanged ? { vo } : {}) } }); toast('Brief saved'); cur = await api('/api/projects/' + cur.id); };
+      await api('/api/projects/' + cur.id, { method: 'PATCH', body: { brief: $('#bBrief').value, persona: $('#bPersona').value, lang: $('#bLang').value, examples: bEx(), ...(voChanged ? { vo } : {}) } }); toast('Brief saved'); cur = await api('/api/projects/' + cur.id); };
   }
   if (tab === 'Upload') {
     const latest = cur.versions[0], u = cur.upload || {};
@@ -486,6 +488,90 @@ $('#revForm').onsubmit = async e => {
   try { await api(`/api/projects/${cur.id}/request`, { method: 'POST', body: { notes } }); $('#revDlg').close(); toast('Sent to Claude'); ad(cur.id, true); } catch (err) { toast(err.message); }
 };
 
+// ---------- video examples (Knowledge) ----------
+const EX_STATE = { processing: ['Breaking down', 'q'], draft: ['Draft · review it', 'warn'], approved: ['Approved', 'ok'], failed: ['Needs attention', 'bad'] };
+const exStats = m => m.stats ? `${Math.round(m.stats.secs)}s · ${m.stats.cuts} ${/scene/.test(m.stats.cutKind || '') ? 'scene changes' : 'cuts'} · ${m.stats.avgShot}s average shot` : '';
+const exTile = m => `<article class="extile enter" data-ex="${m.id}">
+  <div class="exthumb">${m.thumb ? `<img src="/kmedia?id=${m.id}&f=${m.thumb}" alt="" loading="lazy">` : ic('film', 26)}</div>
+  <div class="exb"><div class="row" style="gap:6px"><span class="expill ${EX_STATE[m.status]?.[1] || ''}">${m.status === 'processing' ? '<span class="spin"></span>' : ''}${EX_STATE[m.status]?.[0] || m.status}</span></div>
+    <h3>${esc(m.title)}</h3>${m.stats ? `<span class="small">${exStats(m)}</span>` : ''}<p class="muted">${esc(m.status === 'processing' || m.status === 'failed' ? m.note : m.summary || m.name)}</p></div></article>`;
+async function uploadExamples(files, btnHost) {
+  const vids = [...files].filter(f => /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v|mkv)$/i.test(f.name));
+  if (!vids.length) return toast('Drop a video file');
+  let n = 0;
+  for (const f of vids) {
+    btnHost && (btnHost.innerHTML = `<span class="spin"></span>Uploading ${++n} of ${vids.length}`);
+    const r = await fetch(`/api/examples?name=${encodeURIComponent(f.name)}`, { method: 'POST', body: f });
+    if (!r.ok) toast((await r.json().catch(() => ({}))).error || `Couldn’t upload ${f.name}`);
+  }
+  toast(`${vids.length === 1 ? 'Video' : vids.length + ' videos'} added. Claude is breaking it down`);
+}
+function wireExamples(list) {
+  const drop = $('#exDrop'), inp = $('#exIn');
+  drop.onclick = () => inp.click();
+  drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } };
+  inp.onchange = async () => { await uploadExamples(inp.files, $('span', drop)); inp.value = ''; knowledge(); };
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = async e => { e.preventDefault(); drop.classList.remove('over'); await uploadExamples(e.dataTransfer.files, $('span', drop)); knowledge(); };
+  $$('[data-ex]').forEach(t => t.onclick = () => openExample(t.dataset.ex));
+  clearTimeout(wireExamples.t);
+  if (list.some(m => m.status === 'processing')) wireExamples.t = setTimeout(async () => {
+    if (!location.hash.startsWith('#/knowledge') || $('#exDlg').open) return wireExamples(list);
+    const fresh = await api('/api/examples').catch(() => list);
+    for (const m of fresh) { const el = $(`[data-ex="${m.id}"]`); const html = exTile(m); if (el && el.outerHTML.replace(/ enter/, '') !== html.replace(/ enter/, '')) { el.outerHTML = html.replace(' enter', ''); } }
+    icons(); wireExamples(fresh);
+  }, 2500);
+}
+async function openExample(eid) {
+  const m = await api('/api/examples/' + eid), d = $('#exDlg'), busy = m.status === 'processing';
+  $('#exBody').innerHTML = `<div class="dlg-h"><h2>${esc(m.title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">${ic('x')}</button></div>
+    <div class="exgrid"><div class="exmedia">
+      <video src="/kmedia?id=${m.id}&f=${encodeURIComponent(m.file)}" controls playsinline preload="metadata"></video>
+      <div class="small">${esc(m.name)}${m.stats ? ` · ${exStats(m)}` : ''}${m.cost != null ? ` · card cost about $${m.cost.toFixed(2)}` : ''}</div>
+      ${m.sheets.length ? `<details><summary>Frames Claude looked at (${m.sheets.length} sheet${m.sheets.length > 1 ? 's' : ''})</summary><div class="sheets">${m.sheets.map(f => `<img src="/kmedia?id=${m.id}&f=sheets/${f}" alt="" loading="lazy">`).join('')}</div></details>` : ''}
+      ${m.transcript ? `<details><summary>Transcript</summary><pre class="tx">${esc(m.transcript)}</pre></details>` : ''}
+    </div><div class="excard">
+      ${busy ? `<div class="state"><span class="spin"></span>${esc(m.note)}</div>` : m.status === 'failed' ? `<div class="note bad">${esc(m.note)}</div>` : ''}
+      <label class="field">Title<input id="exTitle" value="${esc(m.title)}" ${busy ? 'disabled' : ''}></label>
+      <label class="field">Why it works<input id="exSum" value="${esc(m.summary)}" ${busy ? 'disabled' : ''}></label>
+      <label class="field">Card<small>What Claude reads when an ad uses this example. Edit anything that’s off.</small><textarea id="exCard" rows="16" ${busy ? 'disabled' : ''}>${esc(m.card)}</textarea></label>
+      <label class="field">Note for Claude<small>Optional, used when you redo the card: what to look at in this video.</small><input id="exNote" value="${esc(m.userNote || '')}" placeholder="e.g. Study the hook and the caption timing"></label>
+    </div></div>
+    <div class="dlg-f"><button type="button" class="btn ghost danger-t" id="exDel">${ic('trash-2', 15)}Delete</button><span class="sp"></span>
+      <button type="button" class="btn ghost" id="exRedo" ${busy ? 'disabled' : ''}>${ic('rotate-ccw', 15)}Redo card</button>
+      ${m.status === 'approved' ? `<button type="button" class="btn ghost" id="exUn">Back to draft</button><button type="button" class="btn primary" id="exSave">Save</button>`
+        : `<button type="button" class="btn ghost" id="exSave" ${busy ? 'disabled' : ''}>Save draft</button><button type="button" class="btn lime" id="exOk" ${busy || !m.card ? 'disabled' : ''}>${ic('check', 15)}Approve</button>`}</div>`;
+  icons(); if (!d.open) d.showModal();
+  $$('[data-close]', d).forEach(b => b.onclick = () => d.close());
+  const body = extra => ({ title: $('#exTitle').value, summary: $('#exSum').value, card: $('#exCard').value, ...extra });
+  const done = msg => { toast(msg); d.close(); knowledge(); };
+  $('#exSave') && ($('#exSave').onclick = async () => { await api('/api/examples/' + eid, { method: 'PATCH', body: body() }); done('Saved'); });
+  $('#exOk') && ($('#exOk').onclick = async () => { await api('/api/examples/' + eid, { method: 'PATCH', body: body({ status: 'approved' }) }); done('Approved. Ads can use this card now'); });
+  $('#exUn') && ($('#exUn').onclick = async () => { await api('/api/examples/' + eid, { method: 'PATCH', body: body({ status: 'draft' }) }); done('Moved back to draft'); });
+  $('#exRedo').onclick = async () => { try { await api(`/api/examples/${eid}/redo`, { method: 'POST', body: { note: $('#exNote').value } }); done('Claude is redoing the card'); } catch (e) { toast(e.message); } };
+  $('#exDel').onclick = async () => {
+    d.close();
+    if (await ask({ title: `Delete “${m.title}”?`, text: 'This removes the video, its frames and its card from this PC, and from any ad that uses it.', ok: 'Delete', danger: true }) == null) return openExample(eid);
+    await api('/api/examples/' + eid, { method: 'DELETE' }); toast('Example deleted'); knowledge();
+  };
+}
+// pick approved example cards for an ad (new ad form and Brief tab); returns a getter for the ids
+async function examplePicker(el, selected = []) {
+  const all = (await api('/api/examples').catch(() => [])).filter(m => m.status === 'approved');
+  const on = new Set(selected.filter(x => all.some(m => m.id === x)));
+  el.className = 'expick';
+  const draw = () => {
+    el.innerHTML = all.length ? all.map(m => `<button type="button" class="exchip" data-id="${m.id}" aria-pressed="${on.has(m.id)}" title="${esc(m.summary)}">${on.has(m.id) ? ic('check', 13) : ic('film', 13)}${esc(m.title)}</button>`).join('')
+      : `<span class="small">No approved video examples yet. Add one in <a href="#/knowledge" data-go>Knowledge</a>.</span>`;
+    icons();
+    $$('.exchip', el).forEach(b => b.onclick = () => { on.has(b.dataset.id) ? on.delete(b.dataset.id) : on.add(b.dataset.id); draw(); });
+    $('[data-go]', el) && ($('[data-go]', el).onclick = () => el.closest('dialog')?.close());
+  };
+  draw();
+  return () => [...on];
+}
+
 // ---------- knowledge ----------
 const md = t => { let out = '', list = false; for (const raw of esc(t).split('\n')) { const l = raw.trimEnd();
   if (/^\s*- /.test(l)) { if (!list) { out += '<ul>'; list = true; } out += '<li>' + l.replace(/^\s*- /, '') + '</li>'; continue; }
@@ -493,11 +579,15 @@ const md = t => { let out = '', list = false; for (const raw of esc(t).split('\n
   if (l.startsWith('## ')) out += '<h2>' + l.slice(3) + '</h2>'; else if (l.startsWith('# ') || !l) continue; else out += '<p>' + l + '</p>'; }
   if (list) out += '</ul>'; return out.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>'); };
 async function knowledge() {
-  claudeBox(); const k = await api('/api/knowledge');
+  claudeBox(); const [k, exs] = await Promise.all([api('/api/knowledge'), api('/api/examples').catch(() => [])]);
   app.innerHTML = `<div class="head enter"><div><h1>Knowledge</h1><p class="muted" style="margin:4px 0 0">What Claude reads before every revision. Lessons from your comments land in Learnings.</p></div></div>
+  <section class="kcard enter exsec"><div class="row"><div><h2>Video examples</h2><p class="muted" style="margin:4px 0 0">Ads worth learning from. Claude breaks each one down into a card: hook, beats, pacing, captions and what to borrow. Approve a card, then pick it for an ad.</p></div></div>
+    <div class="exwrap"><div class="drop exdrop" id="exDrop" tabindex="0" role="button" aria-label="Add a video example">${ic('upload-cloud', 22)}<span>Drop a video here or choose one</span><small class="small">mp4, mov or webm · stays on this PC</small><input type="file" id="exIn" accept="video/*" multiple hidden></div>
+    ${exs.map(exTile).join('')}</div></section>
   <div class="kgrid"><div class="kcard enter"><h2>Product</h2><p class="muted">Features the ads may show, and what they must never claim.</p><div class="md">${md(k.product)}</div></div>
   <div style="display:grid;gap:20px"><div class="kcard enter"><h2>Learnings</h2><form id="lf" class="composer" style="margin:10px 0"><textarea id="lt" rows="2" placeholder="e.g. Keep pills perfectly centred"></textarea><div class="row"><span class="sp"></span><button class="btn primary sm">Add</button></div></form><div class="md">${md(k.learnings)}</div></div>
     <div class="kcard enter"><h2>Style and pacing</h2><div class="md">${md(k.style)}</div></div></div></div>`;
+  wireExamples(exs);
   $('#lf').onsubmit = async e => { e.preventDefault(); const t = $('#lt').value.trim(); if (!t) return; await api('/api/learnings', { method: 'POST', body: { text: t } }); toast('Learning added'); knowledge(); };
 }
 
@@ -552,6 +642,11 @@ async function settingsPage() {
       <div class="state ${st.elevenlabs.set ? 'on' : ''}"><span class="dot"></span>${st.elevenlabs.set ? `Key saved (${st.elevenlabs.hint})` : 'No key yet: voiceover is off for every ad'}</div>
       ${keyForm('elevenlabsKey', st.elevenlabs.set, st.elevenlabs.hint, 'ElevenLabs API key')}
       <p class="small">Get one at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">elevenlabs.io</a>. It needs text to speech and voice read access. Lines that don’t change between versions are reused, so revisions only use credits for new lines.</p></section>
+    <section class="kcard enter" style="animation-delay:60ms"><div class="s-h">${ic('cpu', 20)}<h2>Models</h2></div>
+      <p class="muted">Which Claude does the work. The names always mean the latest version.</p>
+      <label class="field">Revisions and video cards<select id="mRev"><option value="sonnet">Sonnet · recommended</option><option value="opus">Opus · best, costs most</option><option value="haiku">Haiku · cheapest</option></select></label>
+      <label class="field">Upload captions<select id="mQuick"><option value="haiku">Haiku · recommended</option><option value="sonnet">Sonnet</option><option value="opus">Opus</option></select></label>
+      <p class="small">Sonnet costs about a third of Opus. Haiku is cheapest but weaker at visual detail. On an API key cost follows the model; on your Claude login, a cheaper model uses up your plan’s limits more slowly.</p></section>
     <section class="kcard enter" style="animation-delay:80ms"><div class="s-h">${ic('music', 20)}<h2>Sounds</h2></div>
       <p class="muted">The music and sound effects from Mixkit. They can’t ship in the repo, so each PC downloads them once.</p>
       <div class="state ${allSounds ? 'on' : ''}"><span class="dot"></span>${s.have} of ${s.total} files downloaded</div>
@@ -575,6 +670,8 @@ async function settingsPage() {
     });
   });
   $('#getSounds') && ($('#getSounds').onclick = () => downloadSounds($('#getSounds')).then(settingsPage));
+  $('#mRev').value = st.models.revision; $('#mQuick').value = st.models.quick;
+  for (const [elId, k] of [['#mRev', 'revisionModel'], ['#mQuick', 'quickModel']]) $(elId).onchange = async e => { await api('/api/settings', { method: 'POST', body: { [k]: e.target.value } }); toast('Model saved'); };
 }
 
 // ---------- source materials: references (to learn from) and footage (to use in the ad) ----------
@@ -701,7 +798,7 @@ $$('select').forEach(enhanceSelect);
 
 // ---------- new ad ----------
 $$('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
-let voGet = () => ({ on: false }), tpls = [], newSrc = null;
+let voGet = () => ({ on: false }), tpls = [], newSrc = null, exGet = () => [];
 const tplAbout = () => { const t = tpls.find(x => x.slug === $('#nTpl').value); $('#nTplAbout').textContent = t ? `${t.about}. Claude rewrites it for your brief.` : 'Claude builds it from your brief, starting from the closest existing ad.'; };
 $('#newBtn').onclick = async () => {
   $('#newForm').reset(); $('#newErr').hidden = true;
@@ -710,11 +807,12 @@ $('#newBtn').onclick = async () => {
   tplAbout(); $('#nTpl').onchange = tplAbout;
   voGet = await voControl($('#nVo'));
   newSrc = sourcesBox($('#nSrc'));
+  exGet = await examplePicker($('#nEx'));
   $('#newDlg').showModal();
 };
 $('#newForm').onsubmit = async e => {
   e.preventDefault();
-  try { const p = await api('/api/projects', { method: 'POST', body: { title: $('#nTitle').value.trim(), persona: $('#nPersona').value.trim(), lang: $('#nLang').value, format: $('#nFormat').value, template: $('#nTpl').value, brief: $('#nBrief').value, vo: voGet() } });
+  try { const p = await api('/api/projects', { method: 'POST', body: { title: $('#nTitle').value.trim(), persona: $('#nPersona').value.trim(), lang: $('#nLang').value, format: $('#nFormat').value, template: $('#nTpl').value, brief: $('#nBrief').value, vo: voGet(), examples: exGet() } });
     const go = $('#newForm [type=submit]');
     if (newSrc?.count()) {
       go.disabled = true;

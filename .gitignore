@@ -18,3 +18,7 @@ engine/audio/*.mp3
 
 # Detailed spec of the private Polyspeech app (screens + AI prompt formats). Kept local only.
 knowledge/visual-spec.md
+
+# Video examples: the uploaded videos, their frames and the cards made from them stay on this PC
+knowledge/_media/
+knowledge/examples/

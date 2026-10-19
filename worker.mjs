@@ -8,9 +8,12 @@ import { spawnSync } from 'child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, '$1');
+const readSettings = () => { try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'settings.json'), 'utf8')); } catch { return {}; } };
+// Models picked in Settings (aliases always mean the latest version). Revisions default to Sonnet, quick jobs to Haiku.
+export const models = () => { const st = readSettings(); return { revision: st.revisionModel || 'sonnet', quick: st.quickModel || 'haiku' }; };
 const env = () => {
   const e = { ...process.env }; delete e.ANTHROPIC_API_KEY;
-  let st = {}; try { st = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'settings.json'), 'utf8')); } catch {}
+  const st = readSettings();
   if (st.anthropicKey) e.ANTHROPIC_API_KEY = st.anthropicKey;
   if (st.elevenlabsKey) e.ELEVENLABS_API_KEY = st.elevenlabsKey;
   const gitBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
@@ -19,6 +22,7 @@ const env = () => {
 };
 
 // Short, tool-free call used by the upload step.
+export { env, ROOT };
 export async function captions(pr, product) {
   const prompt = `Write upload copy for this Polyspeech ad. Facts must come only from the product notes.
 Ad: "${pr.title}" · persona: ${pr.persona} · language: ${pr.lang} · format: ${pr.format}
@@ -29,7 +33,7 @@ ${product}
 
 Return JSON only, no markdown: {"reelsCaption": "Instagram Reels caption, 1-3 short lines, a hook first, max 2 emoji, then 4-6 hashtags on the last line", "youtubeTitle": "under 70 characters", "youtubeDescription": "2-3 short sentences plus a call to action"}`;
   let text = '';
-  for await (const msg of query({ prompt, options: { cwd: ROOT, allowedTools: [], permissionMode: 'dontAsk', maxTurns: 1, env: env() } })) {
+  for await (const msg of query({ prompt, options: { cwd: ROOT, model: models().quick, allowedTools: [], permissionMode: 'dontAsk', maxTurns: 1, env: env() } })) {
     if (msg.type === 'result' && msg.subtype === 'success') text = msg.result;
   }
   const j = text.match(/\{[\s\S]*\}/); if (!j) throw new Error('Claude didn’t return captions. Try again.');
@@ -43,11 +47,11 @@ async function main() {
   const prompt = `You are the editor in Polyspeech Studio. Do one revision round on a Polyspeech motion-graphics ad, end to end, without asking questions.
 
 1. Read the request: ${rel(reqFile)}. It names the working source (clip.html + clip.json), the output file and every open review comment. Comments marked [pin] or [area] give a position on the frame; open every "Frame with markup" image and every "Attached reference" with Read to see exactly what the reviewer means (an attached reference shows a look or idea they want; match it within the Polyspeech style). Timestamps are video time; the request also gives build time (video time × speed), which is what clip.html uses.
-2. Read knowledge/style.md, knowledge/product.md and knowledge/learnings.md and follow them. When you rebuild app UI, take it from knowledge/visual-spec.md and engine/kit (kit.js, kit.css). Never claim anything listed under "Never claim".
+2. Read knowledge/style.md, knowledge/product.md and knowledge/learnings.md and follow them. Open knowledge/visual-spec.md and engine/kit only for the screens you rebuild, and read only the sections you need. Open an example card in knowledge/examples/ only when the request lists it. Never claim anything listed under "Never claim".
 3. Edit only that project's clip.html and clip.json (and engine/kit only if a fix belongs in the shared kit). Address every open comment; if one can't be done, say why in your summary.
    If the working folder has no clip.html yet (a brand-new brief asking for v1), build one from the brief: copy the closest ad in engine/templates/ as a starting point and rewrite its story, screens, captions and cues for this brief. Match the request's format: 9:16 is 1080×1920, 16:9 is 1920×1080 (set w and h in clip.json and lay the scene out for landscape: phone or desktop UI on one side, captions on the other).
    Voiceover: the request's Voiceover section says whether this ad has one. If it's on, follow knowledge/style.md (Voiceover): write lines.json in the working folder, run node engine/tts.mjs --clip <working source folder> --voice <id> --lines <working source folder>/lines.json, and time every caption and beat to the real line lengths it prints. If it's off, the ad has no voice cues.
-4. Check your work before the full render: node engine/render.mjs --clip <working source folder> --stills <times in build seconds> writes engine/out/still_<t>.jpg. Look at one still per changed beat at full size (alignment, centering, cropping, overlap, readable text). Fix and re-check.
+4. Check your work before the full render: node engine/render.mjs --clip <working source folder> --stills <times in build seconds> writes engine/out/still_<t>.jpg. Look at one still per changed beat at full size (alignment, centering, cropping, overlap, readable text), and only for beats you changed. Fix and re-check.
 5. Render the full video with the exact render command from the request (it writes the output file and engine shows progress to the studio). Then copy clip.html and clip.json (and the vo folder, if there is one) into the vN-src folder named in the request.
 6. For each comment marked as a lesson, add one short line to the top of the list in knowledge/learnings.md ("- YYYY-MM-DD · lesson").
 7. Finish with a 2-3 sentence plain summary of what changed in this version, for the reviewer.`;
@@ -59,6 +63,7 @@ async function main() {
   try {
     for await (const msg of query({ prompt, options: {
       cwd: ROOT,
+      model: models().revision,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: 'You run unattended inside Polyspeech Studio. Work only inside this folder. Keep the final message short.' },
       allowedTools: ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'],
       permissionMode: 'dontAsk',

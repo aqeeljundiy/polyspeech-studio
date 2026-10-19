@@ -10,6 +10,7 @@ A Frame.io-style review board for Polyspeech motion-graphics ads. You review and
 3. In the studio, open **Settings**:
    - **Claude:** paste your Anthropic API key (from console.anthropic.com). On your own PC you can leave it empty and the studio uses your signed-in Claude login instead.
    - **ElevenLabs** (optional): paste a key to make ads with voiceover.
+   - **Models:** Sonnet does revisions and video cards by default, and Haiku writes upload captions. Switch to Opus for the hardest rounds.
    - **Sounds:** press **Download sounds**. The music and sound effects come from [Mixkit](https://mixkit.co). They aren't in this repo because Mixkit's free license allows using them in videos, ads included, but not sharing the files. The track is "Pop Track 03" by Lily J; the effects are listed with their Mixkit IDs in `engine/fetch-audio.mjs`. A revision also downloads any missing sounds before it starts.
 
 Keys are saved in `data/settings.json` on your PC and are never pushed.
@@ -34,6 +35,9 @@ Keys are saved in `data/settings.json` on your PC and are never pushed.
 5. **Approve** moves the ad to **Ready to upload**: download the final file, draft captions with Claude, then **Mark uploaded**.
 
 Cards move only with their step buttons (Make v1, Approve, Mark uploaded). Rendering and Revision requested are set by Claude's jobs. Right-click a card, or use its ⋯ button, to rename it, delete it, cancel a job or move an approved ad back to review.
+
+## Video examples
+In **Knowledge**, drop in an ad worth learning from. The studio pulls frames into contact sheets, measures cuts and pacing, and transcribes speech if an ElevenLabs key is saved. Claude then writes a card covering the hook, beats with timestamps, pacing, captions, motion, sound, what to borrow and what to avoid. Edit it, approve it, then pick it for an ad in the New ad form or the Brief tab. One card costs roughly 15–20 cents on Sonnet. The videos, frames and cards stay on your PC (`knowledge/_media/`, `knowledge/examples/`). Save videos as files first: YouTube links aren't supported.
 
 ## How Claude runs
 `worker.mjs` uses the Claude Agent SDK. With an API key saved in Settings it runs on that key. Without one, it removes `ANTHROPIC_API_KEY` from the environment and uses the signed-in Claude login on this PC. Only one job runs at a time, and the rest wait in Revision requested. Logs go to `projects/<ad>/requests/*.log`.
